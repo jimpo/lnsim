@@ -23,12 +23,17 @@ class Environment(private val rand: Random,
     case events.NewPayment(sender, paymentInfo) =>
       val route = sender.route(paymentInfo)
       route.headOption match {
-        case Some(firstHop) => networkGraph.channelPeer(firstHop.channelID, sender.id) match {
-          case Some(recipient) =>
+        case Some(firstHop) => firstHop.channel match {
+          case Some(channel) =>
+            if (channel.sender(firstHop.direction) != sender) {
+              throw new MisbehavingNodeException("First hop sender is not payment sender")
+            }
+            val recipient = channel.recipient(firstHop.direction)
             val routingPacket = ForwardRoutingPacket(route, valid = true)
             val receiveEvent = events.ReceiveHTLC(recipient, 0, routingPacket)
             List((nodeReceiveTime(recipient), receiveEvent))
-          case None => throw new RuntimeException("Calculated route to unknown channel peer")
+
+          case None => throw new MisbehavingNodeException("First hop has no recipient")
         }
         case None => List.empty
       }

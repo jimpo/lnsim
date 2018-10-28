@@ -19,8 +19,8 @@ class NetworkGraph {
 
   def channelPeer(channelID: ChannelID, nodeID: NodeID): Option[Node] =
     channels.get(channelID).flatMap(channel =>
-      if (channel.node1 == nodeID) nodes.get(channel.node2)
-      else if (channel.node2 == nodeID) nodes.get(channel.node1)
+      if (channel.nodeA.id == nodeID) Some(channel.nodeA)
+      else if (channel.nodeB.id == nodeID) Some(channel.nodeB)
       else None
     )
 

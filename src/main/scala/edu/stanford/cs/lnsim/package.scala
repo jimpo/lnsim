@@ -2,6 +2,8 @@ package edu.stanford.cs
 
 import java.util.UUID
 
+import edu.stanford.cs.lnsim.ChannelDirection._
+
 package object lnsim {
   type NodeID = UUID
   type ChannelID = UUID
@@ -11,8 +13,22 @@ package object lnsim {
   type TimeDelta = Long
   type Value = Long
 
-  // channelID -1 indicates the last hop in a route
-  case class HTLC(id: Int, channelID: ChannelID, amount: Value, expiry: Timestamp, paymentID: PaymentID)
+  /**
+    * Description of an HTLC send within a channel.
+    *
+    * @param id The sequential ID of the HTLC within the channel. See BOLT 2, update_add_htlc.
+    * @param channel
+    * @param direction
+    * @param amount
+    * @param expiry
+    * @param paymentID
+    */
+  case class HTLC(id: Int,
+                  channel: Option[Channel],
+                  direction: ChannelDirection,
+                  amount: Value,
+                  expiry: Timestamp,
+                  paymentID: PaymentID)
 
   /**
     * Description of a Lightning Network payment.
@@ -36,7 +52,14 @@ package object lnsim {
     * A routing packet that is sent backward through the circuit from recipient to sender.
     *
     * @param hops Routing info for each hop along the route.
-    * @param error If the payment failed, the index of the hop where it failed.
+    * @param error If the payment failed, the index of the hop where it failed and an error.
     */
-  case class BackwardRoutingPacket(hops: Array[HTLC], error: Option[Int])
+  case class BackwardRoutingPacket(hops: Array[HTLC], error: Option[(Int, RoutingError)])
+
+  /**
+    * This exception is thrown when a node implementation returns some invalid data.
+    *
+    * @param msg Message describing the error.
+    */
+  class MisbehavingNodeException(msg: String) extends Exception(msg)
 }
