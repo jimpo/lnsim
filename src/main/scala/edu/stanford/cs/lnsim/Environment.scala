@@ -14,7 +14,7 @@ class Environment(private val rand: Random,
     case events.Start => List((blockchain.nextBlockTime(), events.NewBlock(0)))
 
     case events.NewBlock(number) =>
-      val receiveBlockEvents = for (node <- networkGraph.nodes)
+      val receiveBlockEvents = for (node <- networkGraph.nodeIterator)
         yield (nodeReceiveTime(node), events.ReceiveBlock(node, number))
       receiveBlockEvents.toList ::: List((blockchain.nextBlockTime(), events.NewBlock(number + 1)))
 

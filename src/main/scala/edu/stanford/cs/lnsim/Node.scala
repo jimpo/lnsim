@@ -1,5 +1,10 @@
 package edu.stanford.cs.lnsim
 
-trait Node {
-  def meanNetworkLatency: Double
+import java.util.UUID
+
+class Node(private val behavior: NodeBehavior) {
+  val id: NodeID = UUID.randomUUID()
+
+  def meanNetworkLatency: Double = 1
 }
+
