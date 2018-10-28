@@ -21,6 +21,10 @@ object Config {
       .action((seed, c) => c.copy(randomSeed = Some(seed)))
       .text("random seed")
 
+    opt[Int]("block-interval")
+      .action((blockInterval, c) => c.copy(blockInterval = blockInterval))
+      .text(s"expected time between blocks in seconds (default: $DefaultBlockInterval)")
+
     opt[Int]("duration")
       .action((blockInterval, c) => c.copy(blockInterval = blockInterval))
       .text(s"length of simulated run in seconds (default: $DefaultDuration)")

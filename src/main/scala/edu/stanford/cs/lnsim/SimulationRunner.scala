@@ -13,7 +13,8 @@ object SimulationRunner extends App {
         case None => new Random()
       }
 
-      val env = new Environment(rand = rand)
+      val blockchain = new Blockchain(blockInterval = config.blockInterval, rand = rand)
+      val env = new Environment(rand = rand, blockchain = blockchain)
       val simulation = new Simulation[Environment](env, config.duration)
 
       Signal.handle(new Signal("INT"), _ => simulation.stop())
