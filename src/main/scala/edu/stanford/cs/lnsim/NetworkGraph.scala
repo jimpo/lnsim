@@ -17,6 +17,13 @@ class NetworkGraph {
   def channel(id: ChannelID): Option[Channel] = channels.get(id)
   def nodeIterator: Iterator[Node] = nodes.valuesIterator
 
+  def channelPeer(channelID: ChannelID, nodeID: NodeID): Option[Node] =
+    channels.get(channelID).flatMap(channel =>
+      if (channel.node1 == nodeID) nodes.get(channel.node2)
+      else if (channel.node2 == nodeID) nodes.get(channel.node1)
+      else None
+    )
+
   def addNode(node: Node): Unit = {
     nodes(node.id) = node
     nodesToChannels(node.id) = List.empty
