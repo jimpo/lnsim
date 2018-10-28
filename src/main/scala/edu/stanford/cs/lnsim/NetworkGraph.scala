@@ -7,6 +7,8 @@ class NetworkGraph {
   private val channels: mutable.Map[ChannelID, Channel] = mutable.HashMap.empty
   private val nodesToChannels: mutable.Map[NodeID, List[ChannelID]] = mutable.HashMap.empty
 
+  def node(id: NodeID): Option[Node] = nodes.get(id)
+  def channel(id: ChannelID): Option[Channel] = channels.get(id)
   def nodeIterator: Iterator[Node] = nodes.valuesIterator
 
   def addNode(node: Node): Unit = {
