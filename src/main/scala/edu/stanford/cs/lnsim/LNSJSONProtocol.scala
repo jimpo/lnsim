@@ -4,7 +4,7 @@ import spray.json.{JsObject, JsString, JsValue, RootJsonFormat}
 import spray.json.DefaultJsonProtocol._
 
 object LNSJSONProtocol {
-  implicit val ChannelUpdateFormat : RootJsonFormat[ChannelUpdate] = jsonFormat7(ChannelUpdate)
+  val ChannelUpdateFormat : RootJsonFormat[ChannelUpdate] = jsonFormat7(ChannelUpdate)
 
   implicit object ChannelFormat extends RootJsonFormat[Channel] {
     def write(c: Channel) = JsObject(
@@ -15,7 +15,7 @@ object LNSJSONProtocol {
   }
 
   implicit object NodeFormat extends RootJsonFormat[Node] {
-    def write(c: Node) = JsObject("id" -> JsString(c.id.toString))
+    def write(n: Node) = JsObject("id" -> JsString(n.id.toString))
     def read(value: JsValue): Node = ???
   }
 }
