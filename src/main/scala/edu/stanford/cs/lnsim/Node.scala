@@ -2,9 +2,8 @@ package edu.stanford.cs.lnsim
 
 import java.util.UUID
 
-class Node(private val behavior: NodeBehavior) {
-  val id: NodeID = UUID.randomUUID()
-
+class Node(val id: UUID, private val behavior: NodeBehavior) {
+  def this(behavior: NodeBehavior) = this(UUID.randomUUID(), behavior)
   def meanNetworkLatency: Double = 1
 }
 

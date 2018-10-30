@@ -1,5 +1,8 @@
 package edu.stanford.cs.lnsim
 
+import edu.stanford.cs.lnsim.LNSJSONProtocol.{ChannelFormat, NodeFormat}
+import spray.json._
+
 import scala.collection.mutable
 import org.apache.logging.log4j.LogManager
 
@@ -18,13 +21,13 @@ class NetworkGraph {
     nodes(node.id) = node
     nodesToChannels(node.id) = List.empty
 
-    logger.info(f"Node ${node.id}%s created.")
+    logger.info(f"Node ${node.id}%s created: {}", node.toJson(NodeFormat))
   }
 
   def addChannel(node1: Node, node2: Node, channel: Channel): Unit = {
     channels.put(channel.id, channel)
 
-    logger.info(f"Channel ${channel.id}%s created with parties ${node1.id}%s and ${node2.id}%s")
+    logger.info(f"Channel ${channel.id}%s created with parties ${node1.id}%s and ${node2.id}%s: {}", channel.toJson(ChannelFormat))
 
     nodesToChannels(node1.id) = channel.id :: nodesToChannels(node1.id)
     nodesToChannels(node2.id) = channel.id :: nodesToChannels(node2.id)
