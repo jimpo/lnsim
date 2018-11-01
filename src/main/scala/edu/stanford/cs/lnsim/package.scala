@@ -3,14 +3,16 @@ package edu.stanford.cs
 import java.util.UUID
 
 import edu.stanford.cs.lnsim.ChannelDirection._
+import edu.stanford.cs.lnsim.des.{TimeDelta, Timestamp}
 
 package object lnsim {
   type NodeID = UUID
   type ChannelID = UUID
   type PaymentID = UUID
 
-  type Timestamp = Long
-  type TimeDelta = Long
+  /***
+    * Value is the base unit of currency supported. Per the BOLT spec, this is milli-satoshis for Bitcoin.
+    */
   type Value = Long
 
   /**
@@ -24,11 +26,25 @@ package object lnsim {
     * @param paymentID
     */
   case class HTLC(id: Int,
-                  channel: Option[Channel],
+                  channel: Channel,
                   direction: ChannelDirection,
                   amount: Value,
                   expiry: Timestamp,
-                  paymentID: PaymentID)
+                  paymentID: PaymentID) {
+    def sender: Node = channel.sender(direction)
+    def recipient: Node = channel.recipient(direction)
+  }
+
+  /**
+    * Final hop data in a forward routing packet. See BOLT 4.
+    *
+    * @param amount This should equal the amount of the payment.
+    * @param expiry This should match the required final expiry delta.
+    * @param paymentIDKnown Whether the payment can be fulfilled by the recipient.
+    */
+  case class FinalHop(amount: Value,
+                      expiry: Timestamp,
+                      paymentIDKnown: Boolean)
 
   /**
     * Description of a Lightning Network payment.
@@ -41,20 +57,12 @@ package object lnsim {
   case class PaymentInfo(recipient: Node, amount: Value, finalExpiryDelta: TimeDelta, paymentID: PaymentID)
 
   /**
-    * A routing packet that is sent forward through the circuit from sender to recipient.
+    * A complete routing packet that is sent through the circuit.
     *
     * @param hops Routing info for each hop along the route.
-    * @param valid Whether the payment preimage is known by the final recipient.
+    * @param finalHop Routing info on the final hop of the route.
     */
-  case class ForwardRoutingPacket(hops: Array[HTLC], valid: Boolean)
-
-  /**
-    * A routing packet that is sent backward through the circuit from recipient to sender.
-    *
-    * @param hops Routing info for each hop along the route.
-    * @param error If the payment failed, the index of the hop where it failed and an error.
-    */
-  case class BackwardRoutingPacket(hops: Array[HTLC], error: Option[(Int, RoutingError)])
+  case class RoutingPacket(hops: Array[HTLC], finalHop: FinalHop)
 
   /**
     * This exception is thrown when a node implementation returns some invalid data.

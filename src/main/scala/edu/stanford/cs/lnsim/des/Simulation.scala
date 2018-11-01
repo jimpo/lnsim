@@ -11,8 +11,8 @@ import org.apache.logging.log4j.LogManager
   * @param endTime Time the simulation ends at naturally
   * @tparam Env
   */
-class Simulation[Env <: Environment](private val environment: Env, val endTime: Int) {
-  private val eventQueue: mutable.PriorityQueue[(Int, environment.Event)] = new mutable.PriorityQueue()(Ordering.by(_._1))
+class Simulation[Env <: Environment](private val environment: Env, val endTime: Timestamp) {
+  private val eventQueue: mutable.PriorityQueue[(Timestamp, environment.Event)] = new mutable.PriorityQueue()(Ordering.by(_._1))
   private var interrupt: Boolean = false
   private val logger = LogManager.getLogger(classOf[Simulation[Environment]])
 

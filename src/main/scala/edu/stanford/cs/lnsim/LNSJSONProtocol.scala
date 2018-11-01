@@ -9,8 +9,8 @@ object LNSJSONProtocol {
   implicit object ChannelFormat extends RootJsonFormat[Channel] {
     def write(c: Channel) = JsObject(
       "id" -> JsString(c.id.toString),
-      "node1" -> JsString(c.node1.toString),
-      "node2" -> JsString(c.node2.toString))
+      "nodeA" -> JsString(c.nodeA.id.toString),
+      "nodeB" -> JsString(c.nodeB.id.toString))
     def read(value: JsValue): Channel = ???
   }
 

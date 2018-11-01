@@ -7,5 +7,5 @@ trait Environment {
   type Event
 
   def initialEvent(): Event
-  def processEvent(event: Event): List[(Int, Event)]
+  def processEvent(event: Event): List[(TimeDelta, Event)]
 }
