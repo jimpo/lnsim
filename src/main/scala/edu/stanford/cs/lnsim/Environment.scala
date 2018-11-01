@@ -48,6 +48,9 @@ class Environment(private val rand: Random,
         }
 
         val (delay, maybeError) = node.forwardHTLC(hop, nextHop)
+        if (delay == 0) {
+          // Packet was dropped.
+        }
         val event = maybeError match {
           case Some(error) =>
             // Fail the packet, returning to sender.
@@ -63,12 +66,28 @@ class Environment(private val rand: Random,
       } else {
         // Final hop in the circuit.
         val (delay, maybeError) = node.acceptHTLC(hop, route.finalHop)
-        val latency = nodeReceiveTime(hop.sender)
         val event = maybeError match {
           case Some(error) => events.FailHTLC(index, route, error)
           case None => events.FulfillHTLC(index, route)
         }
+
+        val latency = nodeReceiveTime(hop.sender)
         List((delay + latency, event))
+      }
+
+    case events.FailHTLC(index, route, error) =>
+      val hop = route.hops(index)
+      val node = hop.sender
+
+      if (index > 0) {
+        // Intermediate hop in the circuit.
+        val latency = nodeReceiveTime(hop.sender)
+        val delay = node.failHTLC(hop)
+        List((delay + latency, events.FailHTLC(index - 1, route, error)))
+      } else {
+        // Error made it back to the original sender.
+        node.failPayment(hop, error)
+        List()
       }
   }
 

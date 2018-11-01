@@ -13,7 +13,11 @@ class Node(val id: NodeID, private val behavior: NodeBehavior) {
 
   def forwardHTLC(hop: HTLC, nextHop: HTLC): (TimeDelta, Option[RoutingError]) = behavior.forwardHTLC(hop, nextHop)
 
+  def failHTLC(hop: HTLC): TimeDelta = behavior.failHTLC(hop)
+
   def acceptHTLC(hop: HTLC, finalHop: FinalHop): (TimeDelta, Option[RoutingError]) = behavior.acceptHTLC(hop, finalHop)
+
+  def failPayment(htlc: HTLC, error: RoutingError): Unit = behavior.failPayment(hop, error)
 
   override def toString: String = s"Node($id)"
 }
