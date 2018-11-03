@@ -24,6 +24,7 @@ case object TemporaryNodeError extends RoutingError with NodeError
 case object PermanentNodeError extends RoutingError with PermanentError with NodeError
 case object RequiredNodeFeatureMissing extends RoutingError with PermanentError with NodeError
 case object UnknownNextPeer extends RoutingError with PermanentError
+case object TemporaryChannelFailure extends RoutingError with UpdateError
 case class AmountBelowMinimum(amount: Value) extends RoutingError with UpdateError
 case object UnknownPaymentHash extends RoutingError with PermanentError
 case object IncorrectPaymentAmount extends RoutingError with PermanentError

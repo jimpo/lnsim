@@ -6,7 +6,7 @@ import edu.stanford.cs.lnsim.des.{TimeDelta, Timestamp}
 
 case class ChannelUpdate(timestamp: Timestamp,
                          disabled: Boolean,
-                         expiryDelta: TimeDelta,
+                         expiryDelta: BlockDelta,
                          htlcMinimum: Value,
                          htlcMaximum: Value,
                          feeBase: Value,

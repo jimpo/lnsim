@@ -33,7 +33,7 @@ class NetworkGraphSpec extends FlatSpec with Matchers {
   it should "add channels" in {
     val node1 = new Node(new MockNodeBehavior)
     val node2 = new Node(new MockNodeBehavior)
-    val channel = new Channel(node1.id, node2.id, new MockChannelUpdate, new MockChannelUpdate)
+    val channel = new Channel(node1, node2, new MockChannelUpdate, new MockChannelUpdate)
 
     val graph = new NetworkGraph
 
