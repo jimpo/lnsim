@@ -7,5 +7,5 @@ trait Environment {
   type Event
 
   def initialEvent(): Event
-  def processEvent(event: Event): List[(TimeDelta, Event)]
+  def processEvent(event: Event, scheduleEvent: (TimeDelta, Event) => Unit): Unit
 }

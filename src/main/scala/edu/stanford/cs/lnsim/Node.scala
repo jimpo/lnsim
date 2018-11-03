@@ -10,7 +10,6 @@ class Node(val id: NodeID, private val behavior: NodeBehavior) {
   import Node._
 
   private val channels: mutable.Map[ChannelID, ChannelView] = mutable.HashMap.empty
-  private val packetQueue: mutable.Queue[(TimeDelta, Node, Message)] = mutable.Queue.empty
 
   def this(behavior: NodeBehavior) = this(UUID.randomUUID(), behavior)
 
@@ -26,7 +25,8 @@ class Node(val id: NodeID, private val behavior: NodeBehavior) {
 
   def failPayment(hop: HTLC, error: RoutingError): Unit = behavior.failPayment(hop, error)
 
-  def handleUpdateAddHTLC(sender: Node, message: UpdateAddHTLC, blockNumber: BlockNumber): Unit = {
+  def handleUpdateAddHTLC(sender: Node, message: UpdateAddHTLC, blockNumber: BlockNumber)
+                         (implicit sendMessage: (TimeDelta, Node, Message) => Unit): Unit = {
     val UpdateAddHTLC(route, index) = message
     val hop = route.hops(index)
     val node = hop.recipient
@@ -66,21 +66,22 @@ class Node(val id: NodeID, private val behavior: NodeBehavior) {
 
       val event = maybeError match {
         case Some(error) =>
-          packetQueue.enqueue((FailedHTLCProcessingTime, sender, UpdateFailHTLC(route, index, error)))
+          sendMessage(FailedHTLCProcessingTime, sender, UpdateFailHTLC(route, index, error))
         case None =>
-          packetQueue.enqueue((HTLCUpdateProcessingTime, nextHop.recipient, UpdateAddHTLC(route, index + 1)))
+          sendMessage(HTLCUpdateProcessingTime, nextHop.recipient, UpdateAddHTLC(route, index + 1))
       }
     } else {
       // Final hop in the circuit.
       val (delay, maybeError) = node.acceptHTLC(hop, route.finalHop)
       maybeError match {
-        case Some(error) => packetQueue.enqueue((delay, sender, UpdateFailHTLC(route, index, error)))
-        case None => packetQueue.enqueue((delay, sender, UpdateFulfillHTLC(route, index)))
+        case Some(error) => sendMessage(delay, sender, UpdateFailHTLC(route, index, error))
+        case None => sendMessage(delay, sender, UpdateFulfillHTLC(route, index))
       }
     }
   }
 
-  def handleUpdateFailHTLC(sender: Node, message: UpdateFailHTLC): Unit = {
+  def handleUpdateFailHTLC(sender: Node, message: UpdateFailHTLC)
+                          (implicit sendMessage: (TimeDelta, Node, Message) => Unit): Unit = {
     val UpdateFailHTLC(route, index, error) = message
     val hop = route.hops(index)
     val node = hop.sender
@@ -111,14 +112,15 @@ class Node(val id: NodeID, private val behavior: NodeBehavior) {
       }
 
       val delay = node.failHTLC(hop)
-      packetQueue.enqueue((delay, nextHop.recipient, UpdateFailHTLC(route, index - 1, error)))
+      sendMessage(delay, nextHop.recipient, UpdateFailHTLC(route, index - 1, error))
     } else {
       // Error made it back to the original sender.
       node.failPayment(hop, error)
     }
   }
 
-  def handleUpdateFulfillHTLC(sender: Node, message: UpdateFulfillHTLC): Unit = {
+  def handleUpdateFulfillHTLC(sender: Node, message: UpdateFulfillHTLC)
+                             (implicit sendMessage: (TimeDelta, Node, Message) => Unit): Unit = {
     val UpdateFulfillHTLC(route, index) = message
     val hop = route.hops(index)
     val node = hop.sender
@@ -148,13 +150,11 @@ class Node(val id: NodeID, private val behavior: NodeBehavior) {
         case None =>
       }
 
-      packetQueue.enqueue((HTLCUpdateProcessingTime, nextHop.recipient, UpdateFulfillHTLC(route, index - 1)))
+      sendMessage(HTLCUpdateProcessingTime, nextHop.recipient, UpdateFulfillHTLC(route, index - 1))
     } else {
       // Payment confirmation made it back to the original sender.
     }
   }
-
-  def drainPacketQueue(): Seq[(TimeDelta, Node, Message)] = packetQueue.dequeueAll((_) => true)
 
   override def toString: String = s"Node($id)"
 }

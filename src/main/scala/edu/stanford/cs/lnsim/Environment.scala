@@ -1,6 +1,5 @@
 package edu.stanford.cs.lnsim
 
-import edu.stanford.cs.lnsim
 import edu.stanford.cs.lnsim.des.TimeDelta
 
 import scala.util.Random
@@ -13,16 +12,18 @@ class Environment(private val rand: Random,
 
   override def initialEvent(): Event = events.Start
 
-  override def processEvent(event: Event): List[(TimeDelta, Event)] = event match {
+  override def processEvent(event: Event, scheduleEvent: (TimeDelta, Event) => Unit): Unit = event match {
     case events.Start => List((blockchain.nextBlockTime(), events.NewBlock(0)))
 
     case events.NewBlock(number) =>
       blockchain.blockArrived()
-      val receiveBlockEvents = for (node <- networkGraph.nodeIterator)
-        yield (nodeReceiveTime(node), events.ReceiveBlock(node, number))
-      receiveBlockEvents.toList ::: List((blockchain.nextBlockTime(), events.NewBlock(number + 1)))
+      scheduleEvent(blockchain.nextBlockTime(), events.NewBlock(number + 1))
 
-    case events.ReceiveBlock(_node, _number) => List.empty
+      for (node <- networkGraph.nodeIterator) {
+        scheduleEvent(nodeReceiveTime(node), events.ReceiveBlock(node, number))
+      }
+
+    case events.ReceiveBlock(_node, _number) =>
 
     case events.NewPayment(sender, paymentInfo) =>
       val routingPacket = sender.route(paymentInfo)
@@ -32,23 +33,23 @@ class Environment(private val rand: Random,
             throw new MisbehavingNodeException("First hop sender is not payment sender")
           }
           val receiveEvent = events.ReceiveMessage(sender, firstHop.recipient, UpdateAddHTLC(routingPacket, 0))
-          List((nodeReceiveTime(firstHop.recipient), receiveEvent))
+          scheduleEvent(nodeReceiveTime(firstHop.recipient), receiveEvent)
 
-        case None => List.empty
+        case None =>
       }
 
     case events.ReceiveMessage(sender, recipient, message) =>
+      implicit val sendMessage = (delay: TimeDelta, newRecipient: Node, newMessage: Message) =>
+        scheduleEvent(
+          delay + nodeReceiveTime(newRecipient),
+          events.ReceiveMessage(recipient, newRecipient, newMessage)
+        )
+
       message match {
         case message @ UpdateAddHTLC(_, _) => recipient.handleUpdateAddHTLC(sender, message, blockchain.blockNumber)
         case message @ UpdateFulfillHTLC(_, _) => recipient.handleUpdateFulfillHTLC(sender, message)
         case message @ UpdateFailHTLC(_, _, _) => recipient.handleUpdateFailHTLC(sender, message)
       }
-
-      val newEvents = for ((delay, node, newMessage) <- recipient.drainPacketQueue()) yield {
-        val latency = nodeReceiveTime(node)
-        (delay + latency, events.ReceiveMessage(recipient, node, newMessage))
-      }
-      newEvents.toList
   }
 
   private def nodeReceiveTime(node: Node): TimeDelta = Util.drawExponential(node.meanNetworkLatency, rand)

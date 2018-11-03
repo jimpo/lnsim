@@ -15,24 +15,23 @@ class Simulation[Env <: Environment](private val environment: Env, val endTime: 
   private val eventQueue: mutable.PriorityQueue[(Timestamp, environment.Event)] = new mutable.PriorityQueue()(Ordering.by(_._1))
   private var interrupt: Boolean = false
   private val logger = LogManager.getLogger(classOf[Simulation[Environment]])
+  private var currentTime: Timestamp = 0
 
   def run(): Unit = {
-    eventQueue.enqueue((0, environment.initialEvent()))
+    scheduleEvent(0, environment.initialEvent())
     while (!interrupt && eventQueue.nonEmpty) {
-      val (time, event) = eventQueue.dequeue()
+      val (newTime, event) = eventQueue.dequeue()
 
       // TODO: Working JSON serializer for Events
-      logger.info(f"Processing event $event at time $time: {}", event)
+      logger.info(f"Processing event $event at time $newTime: {}", event)
 
-      val next = environment.processEvent(event)
-      for ((delay, nextEvent) <- next) {
-        val nextTime = time + delay
-        if (endTime == 0 || nextTime < endTime) {
-          eventQueue.enqueue((nextTime, nextEvent))
-        }
-      }
+      currentTime = newTime
+      environment.processEvent(event, scheduleEvent)
     }
   }
+
+  private def scheduleEvent(delay: TimeDelta, event: environment.Event): Unit =
+    eventQueue.enqueue((currentTime + delay, event))
 
   def stop(): Unit = interrupt = true
 }
