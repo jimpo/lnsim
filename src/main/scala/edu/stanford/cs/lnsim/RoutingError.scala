@@ -29,5 +29,5 @@ case class AmountBelowMinimum(amount: Value) extends RoutingError with UpdateErr
 case object UnknownPaymentHash extends RoutingError with PermanentError
 case object IncorrectPaymentAmount extends RoutingError with PermanentError
 case object FinalExpiryTooSoon extends RoutingError
-case object FinalIncorrectExpiry extends RoutingError
-case object FinalIncorrectHTLCAmount extends RoutingError
+case class FinalIncorrectExpiry(incomingExpiry: BlockNumber) extends RoutingError
+case class FinalIncorrectHTLCAmount(incomingAmount: Value) extends RoutingError

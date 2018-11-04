@@ -2,7 +2,7 @@ package edu.stanford.cs.lnsim
 
 import java.util.UUID
 
-import edu.stanford.cs.lnsim.des.{TimeDelta, Timestamp}
+import edu.stanford.cs.lnsim.des.Timestamp
 
 case class ChannelUpdate(timestamp: Timestamp,
                          disabled: Boolean,
@@ -22,11 +22,12 @@ import ChannelDirection._
 class Channel(val id: ChannelID,
               val nodeA: Node,
               val nodeB: Node,
-              val update1: ChannelUpdate,
-              val update2: ChannelUpdate) {
+              val updateA: ChannelUpdate,
+              val updateB: ChannelUpdate) {
 
-  def this(node1: Node, node2: Node, update1: ChannelUpdate, update2: ChannelUpdate) =
-    this(UUID.randomUUID(), node1, node2, update1, update2)
+  // TODO: Use implicit Random generator
+  def this(nodeA: Node, nodeB: Node, updateA: ChannelUpdate, updateB: ChannelUpdate) =
+    this(UUID.randomUUID(), nodeA, nodeB, updateA, updateB)
 
   def sender(direction: ChannelDirection): Node = direction match {
     case AtoB => nodeA

@@ -6,24 +6,29 @@ import edu.stanford.cs.lnsim.des.TimeDelta
 
 import scala.collection.mutable
 
-class Node(val id: NodeID, private val behavior: NodeBehavior) {
+class Node(val id: NodeID, private val params: Node.Params) {
   import Node._
 
   private val channels: mutable.Map[ChannelID, ChannelView] = mutable.HashMap.empty
 
-  def this(behavior: NodeBehavior) = this(UUID.randomUUID(), behavior)
+  def this(params: Node.Params) = this(UUID.randomUUID(), params)
 
   def meanNetworkLatency: Double = 1
 
-  def route(paymentInfo: PaymentInfo): RoutingPacket = behavior.route(paymentInfo)
+  def route(paymentInfo: PaymentInfo): RoutingPacket = RoutingPacket(Array(), FinalHop(0, 0, true))
 
-  def forwardHTLC(hop: HTLC, nextHop: HTLC): (TimeDelta, Option[RoutingError]) = behavior.forwardHTLC(hop, nextHop)
+  def channelOpen(channel: Channel, localParams: ChannelParams, remoteParams: ChannelParams): Unit = {
+    if (channels.contains(channel.id)) {
+      throw new AssertionError(s"Channel ${channel.id} has already been added to node $id")
+    }
+    channels(channel.id) = new ChannelView(channel, localParams, remoteParams)
+  }
 
-  def failHTLC(hop: HTLC): TimeDelta = behavior.failHTLC(hop)
-
-  def acceptHTLC(hop: HTLC, finalHop: FinalHop): (TimeDelta, Option[RoutingError]) = behavior.acceptHTLC(hop, finalHop)
-
-  def failPayment(hop: HTLC, error: RoutingError): Unit = behavior.failPayment(hop, error)
+  def channelClose(channelID: ChannelID): Unit = {
+    if (channels.remove(channelID).isEmpty) {
+      throw new AssertionError(s"Channel $channelID is unknown to node $id")
+    }
+  }
 
   def handleUpdateAddHTLC(sender: Node, message: UpdateAddHTLC, blockNumber: BlockNumber)
                          (implicit sendMessage: (TimeDelta, Node, Message) => Unit): Unit = {
@@ -66,13 +71,14 @@ class Node(val id: NodeID, private val behavior: NodeBehavior) {
 
       val event = maybeError match {
         case Some(error) =>
-          sendMessage(FailedHTLCProcessingTime, sender, UpdateFailHTLC(route, index, error))
+          sendMessage(HTLCUpdateProcessingTime, sender, UpdateFailHTLC(route, index, error))
         case None =>
           sendMessage(HTLCUpdateProcessingTime, nextHop.recipient, UpdateAddHTLC(route, index + 1))
       }
     } else {
       // Final hop in the circuit.
-      val (delay, maybeError) = node.acceptHTLC(hop, route.finalHop)
+      val maybeError = acceptHTLC(hop, route.finalHop, blockNumber)
+      val delay = HTLCUpdateProcessingTime
       maybeError match {
         case Some(error) => sendMessage(delay, sender, UpdateFailHTLC(route, index, error))
         case None => sendMessage(delay, sender, UpdateFulfillHTLC(route, index))
@@ -111,11 +117,11 @@ class Node(val id: NodeID, private val behavior: NodeBehavior) {
         case None =>
       }
 
-      val delay = node.failHTLC(hop)
+      val delay = HTLCUpdateProcessingTime
       sendMessage(delay, nextHop.recipient, UpdateFailHTLC(route, index - 1, error))
     } else {
       // Error made it back to the original sender.
-      node.failPayment(hop, error)
+      // node.failPayment(hop, error)
     }
   }
 
@@ -156,10 +162,30 @@ class Node(val id: NodeID, private val behavior: NodeBehavior) {
     }
   }
 
+  private def acceptHTLC(htlc: HTLC, finalHop: FinalHop, blockNumber: BlockNumber): Option[RoutingError] = {
+    if (!finalHop.paymentIDKnown) {
+      return Some(UnknownPaymentHash)
+    }
+    if (htlc.amount < finalHop.amount) {
+      return Some(FinalIncorrectHTLCAmount(htlc.amount))
+    }
+    if (htlc.expiry < finalHop.expiry) {
+      return Some(FinalIncorrectExpiry(htlc.expiry))
+    }
+    if (finalHop.expiry < blockNumber + params.finalExpiryDelta) {
+      return Some(FinalExpiryTooSoon)
+    }
+    None
+  }
+
+  def channel(id: ChannelID): Option[Channel] = channels.get(id).map(_.channel)
+  def channelIterator: Iterator[Channel] = channels.valuesIterator.map(_.channel)
+
   override def toString: String = s"Node($id)"
 }
 
 object Node {
   val HTLCUpdateProcessingTime = 10
-  val FailedHTLCProcessingTime = 10
+
+  case class Params(finalExpiryDelta: BlockDelta)
 }

@@ -2,9 +2,9 @@ package edu.stanford.cs.lnsim
 
 import scala.collection.mutable
 
-class ChannelView(private val channel: Channel,
-                  private val ourParams: ChannelParams,
-                  private val theirParams: ChannelParams) {
+class ChannelView(val channel: Channel,
+                  val ourParams: ChannelParams,
+                  val theirParams: ChannelParams) {
   import ChannelView._
 
   private val ourState: State = new State()

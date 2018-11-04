@@ -82,6 +82,4 @@ package object lnsim {
   class MisbehavingNodeException(msg: String) extends Exception(msg)
 
   class HTLCUpdateFailure(msg: String) extends Exception(msg)
-
-  class AssertionError(msg: String) extends Exception(msg)
 }
