@@ -1,7 +1,10 @@
 package edu.stanford.cs.lnsim.des
 
+import edu.stanford.cs.lnsim.log.StructuredLogging
+
 import scala.collection.mutable
-import org.apache.logging.log4j.LogManager
+import spray.json._
+import spray.json.DefaultJsonProtocol._
 
 /**
   * Discrete event simulation. Processes a queue of events in time order, where each event may trigger
@@ -11,10 +14,12 @@ import org.apache.logging.log4j.LogManager
   * @param endTime Time the simulation ends at naturally
   * @tparam Env
   */
-class Simulation[Env <: Environment](private val environment: Env, val endTime: Timestamp) {
-  private val eventQueue: mutable.PriorityQueue[(Timestamp, environment.Event)] = new mutable.PriorityQueue()(Ordering.by(_._1))
+class Simulation[Env <: Environment](private val environment: Env, val endTime: Timestamp)
+  extends StructuredLogging {
+
+  private val eventQueue: mutable.PriorityQueue[(Timestamp, environment.Event)] =
+    new mutable.PriorityQueue()(Ordering.by(_._1))
   private var interrupt: Boolean = false
-  private val logger = LogManager.getLogger(classOf[Simulation[Environment]])
   private var currentTime: Timestamp = 0
 
   def run(): Unit = {
@@ -23,7 +28,11 @@ class Simulation[Env <: Environment](private val environment: Env, val endTime: 
       val (newTime, event) = eventQueue.dequeue()
 
       // TODO: Working JSON serializer for Events
-      logger.info(f"Processing event $event at time $newTime: {}", event)
+      logger.info(
+        "message" -> "Processing event".toJson,
+        "time" -> newTime.toString.toJson,
+        "event" -> event.toString.toJson
+      )
 
       currentTime = newTime
       environment.processEvent(event, scheduleEvent)

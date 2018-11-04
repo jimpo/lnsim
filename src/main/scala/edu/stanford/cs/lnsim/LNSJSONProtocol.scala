@@ -1,10 +1,17 @@
 package edu.stanford.cs.lnsim
 
-import spray.json.{JsObject, JsString, JsValue, RootJsonFormat}
+import java.util.UUID
+
+import spray.json._
 import spray.json.DefaultJsonProtocol._
 
 object LNSJSONProtocol {
   val ChannelUpdateFormat : RootJsonFormat[ChannelUpdate] = jsonFormat7(ChannelUpdate)
+
+  implicit object UUIDFormat extends RootJsonFormat[UUID] {
+    def write(uuid: UUID): JsValue = uuid.toString.toJson
+    def read(value: JsValue): UUID = ???
+  }
 
   implicit object ChannelFormat extends RootJsonFormat[Channel] {
     def write(c: Channel) = JsObject(
@@ -17,5 +24,27 @@ object LNSJSONProtocol {
   implicit object NodeFormat extends RootJsonFormat[Node] {
     def write(n: Node) = JsObject("id" -> JsString(n.id.toString))
     def read(value: JsValue): Node = ???
+  }
+
+  implicit val PaymentInfoFormat = jsonFormat4(PaymentInfo)
+
+  implicit val StartFormat = jsonFormat0(events.Start)
+  implicit val NewBlockFormat = jsonFormat1(events.NewBlock)
+  implicit val ReceiveBlockFormat = jsonFormat2(events.ReceiveBlock)
+  implicit val NewPaymentFormat = jsonFormat2(events.NewPayment)
+
+  implicit object EventFormat extends JsonWriter[events.Base] {
+    override def write(event: events.Base): JsValue = event match {
+      case e @ events.Start() => StartFormat.write(e)
+      case e @ events.NewBlock(_) => NewBlockFormat.write(e)
+      case e @ events.ReceiveBlock(_, _) => ReceiveBlockFormat.write(e)
+      case e @ events.NewPayment(_, _) => NewPaymentFormat.write(e)
+      case events.ReceiveMessage(sender, recipient, message) =>
+        JsObject(
+          "sender" -> sender.toJson,
+          "recipient" -> recipient.toJson,
+          "message" -> message.getClass.toString.toJson
+        )
+    }
   }
 }

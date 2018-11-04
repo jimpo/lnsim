@@ -12,10 +12,10 @@ class Environment(private val rand: Random,
 
   private val networkGraph: NetworkGraph = graphBuilder.build()
 
-  override def initialEvent(): Event = events.Start
+  override def initialEvent(): Event = events.Start()
 
   override def processEvent(event: Event, scheduleEvent: (TimeDelta, Event) => Unit): Unit = event match {
-    case events.Start => scheduleEvent(blockchain.nextBlockTime(), events.NewBlock(0))
+    case events.Start() => scheduleEvent(blockchain.nextBlockTime(), events.NewBlock(0))
 
     case events.NewBlock(number) =>
       blockchain.blockArrived()
