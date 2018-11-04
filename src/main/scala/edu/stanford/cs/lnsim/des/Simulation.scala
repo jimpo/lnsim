@@ -18,7 +18,7 @@ class Simulation[Env <: Environment](private val environment: Env, val endTime: 
   extends StructuredLogging {
 
   private val eventQueue: mutable.PriorityQueue[(Timestamp, environment.Event)] =
-    new mutable.PriorityQueue()(Ordering.by(_._1))
+    new mutable.PriorityQueue()(Ordering.by(-_._1))
   private var interrupt: Boolean = false
   private var currentTime: Timestamp = 0
 
