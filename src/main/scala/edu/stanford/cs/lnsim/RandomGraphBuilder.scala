@@ -8,60 +8,74 @@ import scala.util.Random
   *
   * @param rand
   */
-class RandomGraphBuilder(private val rand: Random) {
-  def buildNodes(numNodes: Int): Map[NodeID, Node] = {
-    val params = Node.Params(finalExpiryDelta = EclairDefaults.FinalExpiryDelta)
-    val nodes = for (_ <- 0 until numNodes) yield new Node(params)
-    Map(nodes.map((node: Node) => node.id -> node):_*)
+class RandomGraphBuilder(private val rand: Random,
+                         private val numNodes: Int,
+                         private val avgChannelsPerNode: Int) {
+  def build(): NetworkGraph = {
+    val graph = new NetworkGraph()
+    buildNodes(graph, numNodes)
+    createChannels(graph, numNodes * avgChannelsPerNode)
+    graph
   }
 
-  def createChannels(nodes: Map[NodeID, Node], numChannels: Int): Unit = {
-    val nodeArray = nodes.values.toArray
+  private def buildNodes(graph: NetworkGraph, numNodes: Int): Unit = {
+    val params = Node.Params(finalExpiryDelta = EclairDefaults.FinalExpiryDelta)
+    for (_ <- 0 until numNodes) {
+      graph.addNode(new Node(params))
+    }
+  }
+
+  private def createChannels(graph: NetworkGraph, numChannels: Int): Unit = {
+    val nodeArray = graph.nodeIterator.toArray
     val randomBytes = Array.ofDim[Byte](32)
-    for (_ <- 0 until numChannels) {
+
+    Util.repeatUntilSuccess(numChannels) {
       val nodeA = nodeArray(rand.nextInt(nodeArray.length))
       val nodeB = nodeArray(rand.nextInt(nodeArray.length))
+      if (nodeA != nodeB) {
+        val capacity = 10000000000L // 0.1 BTC in mSAT
 
-      val capacity = 10000000000L // 0.1 BTC in mSAT
+        val paramsA = ChannelParams(
+          requiredReserve = (capacity * EclairDefaults.ReserveToFundingRatio).toLong,
+          dustLimit = EclairDefaults.DustLimitSatoshis,
+          maxHTLCInFlight = EclairDefaults.MaxHTLCInFlight,
+          maxAcceptedHTLCs = EclairDefaults.MaxAcceptedHTLCs,
+          htlcMinimum = EclairDefaults.HTLCMinimum,
+        )
+        val paramsB = ChannelParams(
+          requiredReserve = (capacity * EclairDefaults.ReserveToFundingRatio).toLong,
+          dustLimit = EclairDefaults.DustLimitSatoshis,
+          maxHTLCInFlight = EclairDefaults.MaxHTLCInFlight,
+          maxAcceptedHTLCs = EclairDefaults.MaxAcceptedHTLCs,
+          htlcMinimum = EclairDefaults.HTLCMinimum,
+        )
 
-      val paramsA = ChannelParams(
-        requiredReserve = (capacity * EclairDefaults.ReserveToFundingRatio).toLong,
-        dustLimit = EclairDefaults.DustLimitSatoshis,
-        maxHTLCInFlight = EclairDefaults.MaxHTLCInFlight,
-        maxAcceptedHTLCs = EclairDefaults.MaxAcceptedHTLCs,
-        htlcMinimum = EclairDefaults.HTLCMinimum,
-      )
-      val paramsB = ChannelParams(
-        requiredReserve = (capacity * EclairDefaults.ReserveToFundingRatio).toLong,
-        dustLimit = EclairDefaults.DustLimitSatoshis,
-        maxHTLCInFlight = EclairDefaults.MaxHTLCInFlight,
-        maxAcceptedHTLCs = EclairDefaults.MaxAcceptedHTLCs,
-        htlcMinimum = EclairDefaults.HTLCMinimum,
-      )
+        val updateA = ChannelUpdate(
+          timestamp = 0,
+          disabled = false,
+          expiryDelta = EclairDefaults.ExpiryDelta,
+          htlcMinimum = paramsB.htlcMinimum,
+          htlcMaximum = math.min(paramsB.maxHTLCInFlight, capacity),
+          feeBase = EclairDefaults.FeeBase,
+          feeProportionalMillionths = EclairDefaults.FeeProportionalMillionths,
+        )
+        val updateB = ChannelUpdate(
+          timestamp = 0,
+          disabled = false,
+          expiryDelta = EclairDefaults.ExpiryDelta,
+          htlcMinimum = paramsA.htlcMinimum,
+          htlcMaximum = math.min(paramsA.maxHTLCInFlight, capacity),
+          feeBase = EclairDefaults.FeeBase,
+          feeProportionalMillionths = EclairDefaults.FeeProportionalMillionths,
+        )
 
-      val updateA =  ChannelUpdate(
-        timestamp = 0,
-        disabled = false,
-        expiryDelta = EclairDefaults.ExpiryDelta,
-        htlcMinimum = paramsB.htlcMinimum,
-        htlcMaximum = math.min(paramsB.maxHTLCInFlight, capacity),
-        feeBase = EclairDefaults.FeeBase,
-        feeProportionalMillionths = EclairDefaults.FeeProportionalMillionths,
-      )
-      val updateB =  ChannelUpdate(
-        timestamp = 0,
-        disabled = false,
-        expiryDelta = EclairDefaults.ExpiryDelta,
-        htlcMinimum = paramsA.htlcMinimum,
-        htlcMaximum = math.min(paramsA.maxHTLCInFlight, capacity),
-        feeBase = EclairDefaults.FeeBase,
-        feeProportionalMillionths = EclairDefaults.FeeProportionalMillionths,
-      )
-
-      val channel: Channel = new Channel(nodeA, nodeB, updateA, updateB)
-      nodeA.channelOpen(channel, paramsA, paramsB)
-      nodeB.channelOpen(channel, paramsB, paramsA)
+        val channel: Channel = new Channel(nodeA, nodeB, updateA, updateB)
+        nodeA.channelOpen(channel, paramsA, paramsB)
+        nodeB.channelOpen(channel, paramsB, paramsA)
+        true
+      } else {
+        false
+      }
     }
   }
 }
-

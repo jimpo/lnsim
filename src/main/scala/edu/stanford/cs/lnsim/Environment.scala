@@ -6,14 +6,16 @@ import scala.util.Random
 
 class Environment(private val rand: Random,
                   val blockchain: Blockchain,
-                  val networkGraph: NetworkGraph) extends des.Environment {
+                  val graphBuilder: RandomGraphBuilder) extends des.Environment {
 
   override type Event = events.Base
+
+  private val networkGraph: NetworkGraph = graphBuilder.build()
 
   override def initialEvent(): Event = events.Start
 
   override def processEvent(event: Event, scheduleEvent: (TimeDelta, Event) => Unit): Unit = event match {
-    case events.Start => List((blockchain.nextBlockTime(), events.NewBlock(0)))
+    case events.Start => scheduleEvent(blockchain.nextBlockTime(), events.NewBlock(0))
 
     case events.NewBlock(number) =>
       blockchain.blockArrived()

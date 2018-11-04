@@ -30,8 +30,11 @@ class Simulation[Env <: Environment](private val environment: Env, val endTime: 
     }
   }
 
-  private def scheduleEvent(delay: TimeDelta, event: environment.Event): Unit =
-    eventQueue.enqueue((currentTime + delay, event))
+  private def scheduleEvent(delay: TimeDelta, event: environment.Event): Unit = {
+    if (currentTime + delay < endTime) {
+      eventQueue.enqueue((currentTime + delay, event))
+    }
+  }
 
   def stop(): Unit = interrupt = true
 }

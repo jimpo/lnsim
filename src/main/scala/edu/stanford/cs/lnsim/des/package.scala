@@ -11,5 +11,5 @@ package object des {
     */
   type TimeDelta = Long
 
-  def secondsToTimeDelta(seconds: Int): TimeDelta = seconds * 1000
+  def secondsToTimeDelta(seconds: Int): TimeDelta = seconds * 1000L
 }
