@@ -8,18 +8,16 @@ import scala.util.Random
 object SimulationRunner extends App {
   Config.parser.parse(args, Config()) match {
     case Some(config) =>
-      val rand = config.randomSeed match {
-        case Some(seed) => new Random(seed)
-        case None => new Random()
+      config.randomSeed match {
+        case Some(seed) => Random.setSeed(seed)
+        case None =>
       }
 
       val blockchain = new Blockchain(
-        blockInterval = secondsToTimeDelta(config.blockInterval),
-        rand = rand
+        blockInterval = secondsToTimeDelta(config.blockInterval)
       )
-      val graphBuilder = new RandomGraphBuilder(rand, numNodes = 100, avgChannelsPerNode = 2)
+      val graphBuilder = new RandomGraphBuilder(numNodes = 100, avgChannelsPerNode = 2)
       val env = new Environment(
-        rand = rand,
         blockchain = blockchain,
         graphBuilder = graphBuilder
       )

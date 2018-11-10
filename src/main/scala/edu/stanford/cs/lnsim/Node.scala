@@ -1,7 +1,5 @@
 package edu.stanford.cs.lnsim
 
-import java.util.UUID
-
 import edu.stanford.cs.lnsim.des.{TimeDelta, secondsToTimeDelta}
 import edu.stanford.cs.lnsim.routing.Router
 
@@ -12,7 +10,7 @@ class Node(val id: NodeID, private val params: Node.Params, val router: Router) 
 
   private val channels: mutable.Map[ChannelID, ChannelView] = mutable.HashMap.empty
 
-  def this(params: Node.Params, router: Router) = this(UUID.randomUUID(), params, router)
+  def this(params: Node.Params, router: Router) = this(Util.randomUUID(), params, router)
 
   def meanNetworkLatency: Double = 1
 

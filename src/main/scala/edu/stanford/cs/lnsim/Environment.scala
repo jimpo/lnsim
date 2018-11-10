@@ -2,10 +2,7 @@ package edu.stanford.cs.lnsim
 
 import edu.stanford.cs.lnsim.des.TimeDelta
 
-import scala.util.Random
-
-class Environment(private val rand: Random,
-                  private val blockchain: Blockchain,
+class Environment(private val blockchain: Blockchain,
                   private val graphBuilder: RandomGraphBuilder) extends des.Environment {
 
   override type Event = events.Base
@@ -72,5 +69,5 @@ class Environment(private val rand: Random,
       scheduleEvent(node.nextPaymentQuery, events.QueryNewPayment(node))
   }
 
-  private def nodeReceiveTime(node: Node): TimeDelta = Util.drawExponential(node.meanNetworkLatency, rand)
+  private def nodeReceiveTime(node: Node): TimeDelta = Util.drawExponential(node.meanNetworkLatency)
 }

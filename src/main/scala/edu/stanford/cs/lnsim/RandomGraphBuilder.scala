@@ -10,8 +10,7 @@ import scala.util.Random
   *
   * @param rand
   */
-class RandomGraphBuilder(private val rand: Random,
-                         private val numNodes: Int,
+class RandomGraphBuilder(private val numNodes: Int,
                          private val avgChannelsPerNode: Int) {
   def build(): NetworkGraph = {
     val graph = new NetworkGraph()
@@ -33,8 +32,8 @@ class RandomGraphBuilder(private val rand: Random,
     val randomBytes = Array.ofDim[Byte](32)
 
     Util.repeatUntilSuccess(numChannels) {
-      val nodeA = nodeArray(rand.nextInt(nodeArray.length))
-      val nodeB = nodeArray(rand.nextInt(nodeArray.length))
+      val nodeA = nodeArray(Random.nextInt(nodeArray.length))
+      val nodeB = nodeArray(Random.nextInt(nodeArray.length))
       if (nodeA != nodeB) {
         val capacity = 10000000000L // 0.1 BTC in mSAT
 

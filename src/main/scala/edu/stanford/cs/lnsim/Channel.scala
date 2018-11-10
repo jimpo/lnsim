@@ -1,7 +1,5 @@
 package edu.stanford.cs.lnsim
 
-import java.util.UUID
-
 import edu.stanford.cs.lnsim.des.Timestamp
 
 case class ChannelUpdate(timestamp: Timestamp,
@@ -27,7 +25,7 @@ class Channel(val id: ChannelID,
 
   // TODO: Use implicit Random generator
   def this(nodeA: Node, nodeB: Node, updateA: ChannelUpdate, updateB: ChannelUpdate) =
-    this(UUID.randomUUID(), nodeA, nodeB, updateA, updateB)
+    this(Util.randomUUID(), nodeA, nodeB, updateA, updateB)
 
   def sender(direction: ChannelDirection): Node = direction match {
     case AtoB => nodeA
