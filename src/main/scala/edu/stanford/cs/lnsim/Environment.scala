@@ -5,8 +5,8 @@ import edu.stanford.cs.lnsim.des.TimeDelta
 import scala.util.Random
 
 class Environment(private val rand: Random,
-                  val blockchain: Blockchain,
-                  val graphBuilder: RandomGraphBuilder) extends des.Environment {
+                  private val blockchain: Blockchain,
+                  private val graphBuilder: RandomGraphBuilder) extends des.Environment {
 
   override type Event = events.Base
 
@@ -15,7 +15,11 @@ class Environment(private val rand: Random,
   override def initialEvent(): Event = events.Start()
 
   override def processEvent(event: Event, scheduleEvent: (TimeDelta, Event) => Unit): Unit = event match {
-    case events.Start() => scheduleEvent(blockchain.nextBlockTime(), events.NewBlock(0))
+    case events.Start() =>
+      scheduleEvent(blockchain.nextBlockTime(), events.NewBlock(0))
+      for (node <- networkGraph.nodeIterator) {
+        scheduleEvent(0, events.QueryNewPayment(node))
+      }
 
     case events.NewBlock(number) =>
       blockchain.blockArrived()
@@ -27,16 +31,24 @@ class Environment(private val rand: Random,
 
     case events.ReceiveBlock(_node, _number) =>
 
-    case events.NewPayment(sender, paymentInfo) =>
-      val routingPacket = sender.route(paymentInfo)
-      routingPacket.hops.headOption match {
-        case Some(firstHop) =>
-          if (firstHop.sender != sender) {
-            throw new MisbehavingNodeException("First hop sender is not payment sender")
-          }
-          val receiveEvent = events.ReceiveMessage(sender, firstHop.recipient, UpdateAddHTLC(routingPacket, 0))
-          scheduleEvent(nodeReceiveTime(firstHop.recipient), receiveEvent)
+    case events.NewPayment(paymentInfo) =>
+      val sender = paymentInfo.sender
+      sender.router.findPath(paymentInfo, networkGraph) match {
+        case Some(routingPacket) =>
+          routingPacket.hops.headOption match {
+            case Some(firstHop) =>
+              if (firstHop.sender != sender) {
+                throw new MisbehavingNodeException("First hop sender is not payment sender")
+              }
+              val receiveEvent = events.ReceiveMessage(
+                sender,
+                firstHop.recipient,
+                UpdateAddHTLC(routingPacket, 0)
+              )
+              scheduleEvent(nodeReceiveTime(firstHop.recipient), receiveEvent)
 
+            case None =>
+          }
         case None =>
       }
 
@@ -52,6 +64,12 @@ class Environment(private val rand: Random,
         case message @ UpdateFulfillHTLC(_, _) => recipient.handleUpdateFulfillHTLC(sender, message)
         case message @ UpdateFailHTLC(_, _, _) => recipient.handleUpdateFailHTLC(sender, message)
       }
+
+    case events.QueryNewPayment(node) =>
+      for (paymentInfo <- node.newPayments()) {
+        scheduleEvent(0, events.NewPayment(paymentInfo))
+      }
+      scheduleEvent(node.nextPaymentQuery, events.QueryNewPayment(node))
   }
 
   private def nodeReceiveTime(node: Node): TimeDelta = Util.drawExponential(node.meanNetworkLatency, rand)

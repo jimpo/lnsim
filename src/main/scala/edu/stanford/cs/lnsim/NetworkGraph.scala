@@ -15,7 +15,7 @@ class NetworkGraph extends StructuredLogging {
   def addNode(node: Node): Unit = {
     nodes(node.id) = node
     logger.info(
-      "msg" -> JsString("Node created"),
+      "message" -> JsString("Node created"),
       "node" -> node.toJson
     )
   }

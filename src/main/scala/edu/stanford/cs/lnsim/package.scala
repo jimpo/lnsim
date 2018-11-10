@@ -59,12 +59,17 @@ package object lnsim {
   /**
     * Description of a Lightning Network payment.
     *
+    * @param sender The node sending the payment.
     * @param recipient The node receiving the payment.
     * @param amount The amount of the payment.
     * @param finalExpiryDelta The minimum expiry delta at the final hop.
     * @param paymentID The equivalent of a payment hash in the simulation environment.
     */
-  case class PaymentInfo(recipient: Node, amount: Value, finalExpiryDelta: BlockDelta, paymentID: PaymentID)
+  case class PaymentInfo(sender: Node,
+                         recipient: Node,
+                         amount: Value,
+                         finalExpiryDelta: BlockDelta,
+                         paymentID: PaymentID)
 
   /**
     * A complete routing packet that is sent through the circuit.

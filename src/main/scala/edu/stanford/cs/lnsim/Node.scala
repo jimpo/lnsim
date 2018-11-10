@@ -2,20 +2,19 @@ package edu.stanford.cs.lnsim
 
 import java.util.UUID
 
-import edu.stanford.cs.lnsim.des.TimeDelta
+import edu.stanford.cs.lnsim.des.{TimeDelta, secondsToTimeDelta}
+import edu.stanford.cs.lnsim.routing.Router
 
 import scala.collection.mutable
 
-class Node(val id: NodeID, private val params: Node.Params) {
+class Node(val id: NodeID, private val params: Node.Params, val router: Router) {
   import Node._
 
   private val channels: mutable.Map[ChannelID, ChannelView] = mutable.HashMap.empty
 
-  def this(params: Node.Params) = this(UUID.randomUUID(), params)
+  def this(params: Node.Params, router: Router) = this(UUID.randomUUID(), params, router)
 
   def meanNetworkLatency: Double = 1
-
-  def route(paymentInfo: PaymentInfo): RoutingPacket = RoutingPacket(Array(), FinalHop(0, 0, true))
 
   def channelOpen(channel: Channel, localParams: ChannelParams, remoteParams: ChannelParams): Unit = {
     if (channels.contains(channel.id)) {
@@ -181,7 +180,15 @@ class Node(val id: NodeID, private val params: Node.Params) {
   def channel(id: ChannelID): Option[Channel] = channels.get(id).map(_.channel)
   def channelIterator: Iterator[Channel] = channels.valuesIterator.map(_.channel)
 
-  override def toString: String = s"Node($id)"
+  def newPayments(): List[PaymentInfo] = List.empty
+
+  /**
+    * Return the time delay until the node should next be queried to initiate new payments. This
+    * is a lower bound on the next time a payment may be initiated by this node.
+    *
+    * The naive strategy implemented for now is to query every minute.
+    */
+  def nextPaymentQuery: TimeDelta = secondsToTimeDelta(60)
 }
 
 object Node {

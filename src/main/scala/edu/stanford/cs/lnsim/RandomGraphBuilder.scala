@@ -1,5 +1,7 @@
 package edu.stanford.cs.lnsim
 
+import edu.stanford.cs.lnsim.routing.DummyRouter
+
 import scala.util.Random
 
 /**
@@ -19,9 +21,10 @@ class RandomGraphBuilder(private val rand: Random,
   }
 
   private def buildNodes(graph: NetworkGraph, numNodes: Int): Unit = {
+    val router = new DummyRouter()
     val params = Node.Params(finalExpiryDelta = EclairDefaults.FinalExpiryDelta)
     for (_ <- 0 until numNodes) {
-      graph.addNode(new Node(params))
+      graph.addNode(new Node(params, router))
     }
   }
 

@@ -2,6 +2,7 @@ package edu.stanford.cs.lnsim
 
 import org.scalatest.{FlatSpec, Matchers}
 
+/*
 class MockNodeBehavior extends NodeBehavior{}
 class MockChannelUpdate extends ChannelUpdate(0,false,0,0,0,0,0)
 
@@ -45,3 +46,4 @@ class NetworkGraphSpec extends FlatSpec with Matchers {
     assert(graph.channel(channel.id).contains(channel))
   }
 }
+*/
