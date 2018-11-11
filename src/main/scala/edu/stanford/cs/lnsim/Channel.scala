@@ -37,5 +37,16 @@ class Channel(val id: ChannelID,
     case BtoA => nodeA
   }
 
+  def channelUpdate(direction: ChannelDirection): ChannelUpdate = direction match {
+    case AtoB => updateA
+    case BtoA => updateB
+  }
+
   override def toString: String = s"Channel($id, $nodeA <=> $nodeB)"
+}
+
+case class ChannelWithDirection(channel: Channel, direction: ChannelDirection) {
+  def sender: Node = channel.sender(direction)
+  def recipient: Node = channel.recipient(direction)
+  def channelUpdate: ChannelUpdate = channel.channelUpdate(direction)
 }

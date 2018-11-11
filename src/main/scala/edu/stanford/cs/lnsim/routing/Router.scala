@@ -1,7 +1,10 @@
 package edu.stanford.cs.lnsim.routing
 
-import edu.stanford.cs.lnsim.{NetworkGraph, PaymentInfo, RoutingPacket}
+import edu.stanford.cs.lnsim.{ChannelWithDirection, PaymentInfo}
 
 trait Router {
-  def findPath(paymentInfo: PaymentInfo, networkGraph: NetworkGraph): Option[RoutingPacket]
+  /**
+    * Returns an iterator of channels in order from sender to recipient.
+    */
+  def findPath(paymentInfo: PaymentInfo, networkGraph: NetworkGraphView): Iterator[ChannelWithDirection]
 }

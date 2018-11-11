@@ -3,6 +3,7 @@ package edu.stanford.cs
 import java.util.UUID
 
 import edu.stanford.cs.lnsim.ChannelDirection._
+import edu.stanford.cs.lnsim.des.Timestamp
 
 package object lnsim {
   type NodeID = UUID
@@ -78,6 +79,11 @@ package object lnsim {
     * @param finalHop Routing info on the final hop of the route.
     */
   case class RoutingPacket(hops: Array[HTLC], finalHop: FinalHop)
+
+  /**
+    * A node announcement that is broadcast through network gossip. See BOLT 7.
+    */
+  case class NodeAnnouncement(nodeID: NodeID, timestamp: Timestamp)
 
   /**
     * This exception is thrown when a node implementation returns some invalid data.

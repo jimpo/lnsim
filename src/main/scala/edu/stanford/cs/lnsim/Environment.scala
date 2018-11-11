@@ -30,7 +30,7 @@ class Environment(private val blockchain: Blockchain,
 
     case events.NewPayment(paymentInfo) =>
       val sender = paymentInfo.sender
-      sender.router.findPath(paymentInfo, networkGraph) match {
+      sender.route(paymentInfo, blockchain.blockNumber, paymentIDKnown = true) match {
         case Some(routingPacket) =>
           routingPacket.hops.headOption match {
             case Some(firstHop) =>

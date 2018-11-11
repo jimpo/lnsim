@@ -1,14 +1,15 @@
 package edu.stanford.cs.lnsim
 
-import edu.stanford.cs.lnsim.des.{TimeDelta, secondsToTimeDelta}
-import edu.stanford.cs.lnsim.routing.Router
+import edu.stanford.cs.lnsim.des.{TimeDelta, Timestamp, secondsToTimeDelta}
+import edu.stanford.cs.lnsim.routing.{NetworkGraphView, Router}
 
 import scala.collection.mutable
 
-class Node(val id: NodeID, private val params: Node.Params, val router: Router) {
+class Node(val id: NodeID, val params: Node.Params, private val router: Router) {
   import Node._
 
   private val channels: mutable.Map[ChannelID, ChannelView] = mutable.HashMap.empty
+  private val graphView: NetworkGraphView = new NetworkGraphView()
 
   def this(params: Node.Params, router: Router) = this(Util.randomUUID(), params, router)
 
@@ -187,6 +188,32 @@ class Node(val id: NodeID, private val params: Node.Params, val router: Router) 
     * The naive strategy implemented for now is to query every minute.
     */
   def nextPaymentQuery: TimeDelta = secondsToTimeDelta(60)
+
+  def route(paymentInfo: PaymentInfo, blockNumber: BlockNumber, paymentIDKnown: Boolean): Option[RoutingPacket] = {
+    val pathIterator = router.findPath(paymentInfo, graphView)
+    if (pathIterator.isEmpty) {
+      return None
+    }
+
+    val path = pathIterator.zipWithIndex.toList
+    val hops = Array.ofDim[HTLC](path.length)
+    val finalHop: FinalHop = FinalHop(
+      amount = paymentInfo.amount,
+      expiry = blockNumber + paymentInfo.finalExpiryDelta,
+      paymentIDKnown = paymentIDKnown
+    )
+
+    var amount = finalHop.amount
+    var expiry = finalHop.expiry
+    for ((edge, i) <- path.reverseIterator.toIndexedSeq) {
+      val channelUpdate = edge.channelUpdate
+      hops(i) = HTLC(edge.channel, edge.direction, HTLC.Desc(-1, amount, expiry, paymentInfo.paymentID))
+      amount += channelUpdate.feeBase + amount * channelUpdate.feeProportionalMillionths / 1000000
+      expiry += channelUpdate.expiryDelta
+    }
+
+    Some(RoutingPacket(hops, finalHop))
+  }
 }
 
 object Node {

@@ -1,6 +1,6 @@
 package edu.stanford.cs.lnsim
 
-import edu.stanford.cs.lnsim.routing.DummyRouter
+import edu.stanford.cs.lnsim.routing.MinimalFeeRouter
 
 import scala.util.Random
 
@@ -12,6 +12,8 @@ import scala.util.Random
   */
 class RandomGraphBuilder(private val numNodes: Int,
                          private val avgChannelsPerNode: Int) {
+  import RandomGraphBuilder._
+
   def build(): NetworkGraph = {
     val graph = new NetworkGraph()
     buildNodes(graph, numNodes)
@@ -20,7 +22,7 @@ class RandomGraphBuilder(private val numNodes: Int,
   }
 
   private def buildNodes(graph: NetworkGraph, numNodes: Int): Unit = {
-    val router = new DummyRouter()
+    val router = new MinimalFeeRouter(MaximumRoutingFee)
     val params = Node.Params(finalExpiryDelta = EclairDefaults.FinalExpiryDelta)
     for (_ <- 0 until numNodes) {
       graph.addNode(new Node(params, router))
@@ -80,4 +82,14 @@ class RandomGraphBuilder(private val numNodes: Int,
       }
     }
   }
+}
+
+object RandomGraphBuilder {
+  /**
+    * This is the maximum that a node is willing to pay in routing fees. If the cost of a
+    * transaction exceeds this amount, the node would prefer to send it on-chain anyway.
+    *
+    * Set to 0.0001 BTC.
+    */
+  val MaximumRoutingFee = 10000000
 }
