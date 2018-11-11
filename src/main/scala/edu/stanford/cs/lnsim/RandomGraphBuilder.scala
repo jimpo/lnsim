@@ -11,24 +11,37 @@ import scala.util.Random
   * @param rand
   */
 class RandomGraphBuilder(private val numNodes: Int,
-                         private val avgChannelsPerNode: Int) {
+                         private val avgChannelsPerNode: Int,
+                         private val blockchain: Blockchain) {
   import RandomGraphBuilder._
 
   def build(): NetworkGraph = {
     val graph = new NetworkGraph()
     buildNodes(graph, numNodes)
-    createChannels(graph, numNodes * avgChannelsPerNode)
+    //createChannels(graph, numNodes * avgChannelsPerNode)
     graph
   }
 
   private def buildNodes(graph: NetworkGraph, numNodes: Int): Unit = {
     val router = new MinimalFeeRouter(MaximumRoutingFee)
-    val params = Node.Params(finalExpiryDelta = EclairDefaults.FinalExpiryDelta)
+    val params = Node.Params(
+      EclairDefaults.ReserveToFundingRatio,
+      EclairDefaults.DustLimitSatoshis,
+      EclairDefaults.MaxHTLCInFlight,
+      EclairDefaults.MaxAcceptedHTLCs,
+      EclairDefaults.HTLCMinimum,
+      EclairDefaults.MinDepthBlocks,
+      EclairDefaults.FinalExpiryDelta
+    )
+
     for (_ <- 0 until numNodes) {
-      graph.addNode(new Node(params, router))
+      val nodeID = Util.randomUUID()
+      val blockchainView = new BlockchainView(nodeID, blockchain)
+      graph.addNode(new Node(nodeID, params, router, blockchainView))
     }
   }
 
+  /*
   private def createChannels(graph: NetworkGraph, numChannels: Int): Unit = {
     val nodeArray = graph.nodeIterator.toArray
     val randomBytes = Array.ofDim[Byte](32)
@@ -39,20 +52,8 @@ class RandomGraphBuilder(private val numNodes: Int,
       if (nodeA != nodeB) {
         val capacity = 10000000000L // 0.1 BTC in mSAT
 
-        val paramsA = ChannelParams(
-          requiredReserve = (capacity * EclairDefaults.ReserveToFundingRatio).toLong,
-          dustLimit = EclairDefaults.DustLimitSatoshis,
-          maxHTLCInFlight = EclairDefaults.MaxHTLCInFlight,
-          maxAcceptedHTLCs = EclairDefaults.MaxAcceptedHTLCs,
-          htlcMinimum = EclairDefaults.HTLCMinimum,
-        )
-        val paramsB = ChannelParams(
-          requiredReserve = (capacity * EclairDefaults.ReserveToFundingRatio).toLong,
-          dustLimit = EclairDefaults.DustLimitSatoshis,
-          maxHTLCInFlight = EclairDefaults.MaxHTLCInFlight,
-          maxAcceptedHTLCs = EclairDefaults.MaxAcceptedHTLCs,
-          htlcMinimum = EclairDefaults.HTLCMinimum,
-        )
+        val paramsA = nodeA.params.channelParams(capacity)
+        val paramsB = nodeB.params.channelParams(capacity)
 
         val updateA = ChannelUpdate(
           timestamp = 0,
@@ -74,14 +75,13 @@ class RandomGraphBuilder(private val numNodes: Int,
         )
 
         val channel: Channel = new Channel(nodeA, nodeB, updateA, updateB)
-        nodeA.channelOpen(channel, paramsA, paramsB)
-        nodeB.channelOpen(channel, paramsB, paramsA)
         true
       } else {
         false
       }
     }
   }
+    */
 }
 
 object RandomGraphBuilder {

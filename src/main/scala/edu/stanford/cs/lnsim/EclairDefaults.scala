@@ -17,4 +17,5 @@ object EclairDefaults {
   val MaxReserveToFundingRatio: Double = 0.05
 
   val FinalExpiryDelta: BlockDelta = 9
+  val MinDepthBlocks: BlockDelta = 3
 }

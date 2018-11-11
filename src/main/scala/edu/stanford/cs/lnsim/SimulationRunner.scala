@@ -16,7 +16,7 @@ object SimulationRunner extends App {
       val blockchain = new Blockchain(
         blockInterval = secondsToTimeDelta(config.blockInterval)
       )
-      val graphBuilder = new RandomGraphBuilder(numNodes = 100, avgChannelsPerNode = 2)
+      val graphBuilder = new RandomGraphBuilder(numNodes = 100, avgChannelsPerNode = 2, blockchain = blockchain)
       val env = new Environment(
         blockchain = blockchain,
         graphBuilder = graphBuilder

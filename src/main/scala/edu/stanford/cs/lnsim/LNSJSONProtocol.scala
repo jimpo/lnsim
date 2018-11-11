@@ -30,7 +30,6 @@ object LNSJSONProtocol {
 
   implicit val StartFormat = jsonFormat0(events.Start)
   implicit val NewBlockFormat = jsonFormat1(events.NewBlock)
-  implicit val ReceiveBlockFormat = jsonFormat2(events.ReceiveBlock)
   implicit val NewPaymentFormat = jsonFormat1(events.NewPayment)
   implicit val QueryNewPaymentFormat = jsonFormat1(events.QueryNewPayment)
 
@@ -38,7 +37,6 @@ object LNSJSONProtocol {
     override def write(event: events.Base): JsValue = event match {
       case e @ events.Start() => StartFormat.write(e)
       case e @ events.NewBlock(_) => NewBlockFormat.write(e)
-      case e @ events.ReceiveBlock(_, _) => ReceiveBlockFormat.write(e)
       case e @ events.NewPayment( _) => NewPaymentFormat.write(e)
       case events.ReceiveMessage(sender, recipient, message) =>
         JsObject(

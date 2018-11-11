@@ -19,45 +19,37 @@ class Environment(private val blockchain: Blockchain,
       }
 
     case events.NewBlock(number) =>
-      blockchain.blockArrived()
-      scheduleEvent(blockchain.nextBlockTime(), events.NewBlock(number + 1))
-
-      for (node <- networkGraph.nodeIterator) {
-        scheduleEvent(nodeReceiveTime(node), events.ReceiveBlock(node, number))
+      for (notification <- blockchain.blockArrived()) notification match {
+        case Blockchain.ChannelOpened(channelID, nodeID) =>
+          val node = networkGraph.node(nodeID).get
+          implicit val sendMessage = createNetworkConnection(node, scheduleEvent) _
+          node.handleChannelOpenedOnChain(channelID)
+        case Blockchain.ChannelClosed(channelID) =>
       }
-
-    case events.ReceiveBlock(_node, _number) =>
+      scheduleEvent(blockchain.nextBlockTime(), events.NewBlock(number + 1))
 
     case events.NewPayment(paymentInfo) =>
       val sender = paymentInfo.sender
-      sender.route(paymentInfo, blockchain.blockNumber, paymentIDKnown = true) match {
-        case Some(routingPacket) =>
-          routingPacket.hops.headOption match {
-            case Some(firstHop) =>
-              if (firstHop.sender != sender) {
-                throw new MisbehavingNodeException("First hop sender is not payment sender")
-              }
-              val receiveEvent = events.ReceiveMessage(
-                sender,
-                firstHop.recipient,
-                UpdateAddHTLC(routingPacket, 0)
-              )
-              scheduleEvent(nodeReceiveTime(firstHop.recipient), receiveEvent)
+      implicit val sendMessage = (delay: TimeDelta, msgRecipient: Node, newMessage: Message) =>
+        scheduleEvent(
+          delay + nodeReceiveTime(msgRecipient),
+          events.ReceiveMessage(sender, msgRecipient, newMessage)
+        )
 
-            case None =>
-          }
-        case None =>
-      }
+      sender.sendPayment(paymentInfo)
 
     case events.ReceiveMessage(sender, recipient, message) =>
-      implicit val sendMessage = (delay: TimeDelta, newRecipient: Node, newMessage: Message) =>
+      implicit val sendMessage = (delay: TimeDelta, msgRecipient: Node, newMessage: Message) =>
         scheduleEvent(
-          delay + nodeReceiveTime(newRecipient),
-          events.ReceiveMessage(recipient, newRecipient, newMessage)
+          delay + nodeReceiveTime(msgRecipient),
+          events.ReceiveMessage(recipient, msgRecipient, newMessage)
         )
 
       message match {
-        case message @ UpdateAddHTLC(_, _) => recipient.handleUpdateAddHTLC(sender, message, blockchain.blockNumber)
+        case message @ OpenChannel(_, _, _) => recipient.handleOpenChannel(sender, message)
+        case message @ AcceptChannel(_, _, _) => recipient.handleAcceptChannel(sender, message)
+        case message @ FundingCreated(_, _) => recipient.handleFundingCreated(sender, message)
+        case message @ UpdateAddHTLC(_, _) => recipient.handleUpdateAddHTLC(sender, message)
         case message @ UpdateFulfillHTLC(_, _) => recipient.handleUpdateFulfillHTLC(sender, message)
         case message @ UpdateFailHTLC(_, _, _) => recipient.handleUpdateFailHTLC(sender, message)
       }
@@ -70,4 +62,11 @@ class Environment(private val blockchain: Blockchain,
   }
 
   private def nodeReceiveTime(node: Node): TimeDelta = Util.drawExponential(node.meanNetworkLatency)
+
+  private def createNetworkConnection(node: Node, scheduleEvent: (TimeDelta, Event) => Unit)
+                                     (delay: TimeDelta, msgRecipient: Node, newMessage: Message): Unit =
+    scheduleEvent(
+      delay + nodeReceiveTime(msgRecipient),
+      events.ReceiveMessage(node, msgRecipient, newMessage)
+    )
 }

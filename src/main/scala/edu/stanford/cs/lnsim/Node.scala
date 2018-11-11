@@ -5,30 +5,61 @@ import edu.stanford.cs.lnsim.routing.{NetworkGraphView, Router}
 
 import scala.collection.mutable
 
-class Node(val id: NodeID, val params: Node.Params, private val router: Router) {
+class Node(val id: NodeID,
+           val params: Node.Params,
+           private val router: Router,
+           private val blockchain: BlockchainView) {
   import Node._
 
   private val channels: mutable.Map[ChannelID, ChannelView] = mutable.HashMap.empty
   private val graphView: NetworkGraphView = new NetworkGraphView()
 
-  def this(params: Node.Params, router: Router) = this(Util.randomUUID(), params, router)
-
   def meanNetworkLatency: Double = 1
 
-  def channelOpen(channel: Channel, localParams: ChannelParams, remoteParams: ChannelParams): Unit = {
-    if (channels.contains(channel.id)) {
-      throw new AssertionError(s"Channel ${channel.id} has already been added to node $id")
+  def channelOpen(channelID: ChannelID,
+                  otherNode: Node,
+                  requiredConfirmations: BlockDelta,
+                  localBalance: Value,
+                  remoteBalance: Value,
+                  localParams: ChannelParams,
+                  remoteParams: ChannelParams): Unit = {
+    if (channels.contains(channelID)) {
+      throw new AssertionError(s"Channel ${channelID} has already been added to node $id")
     }
-    channels(channel.id) = new ChannelView(channel, localParams, remoteParams)
+    channels(channelID) = new ChannelView(otherNode, localBalance, remoteBalance, localParams, remoteParams)
+    blockchain.subscribeChannelConfirmed(channelID, requiredConfirmations)
+
+//    for (direction <- Seq(ChannelDirection.AtoB, ChannelDirection.BtoA)) {
+//      val edge = ChannelWithDirection(channel, direction)
+//      graphView.channelGraph.addEdge(edge.sender.id, edge.recipient.id, edge)
+//    }
   }
 
   def channelClose(channelID: ChannelID): Unit = {
-    if (channels.remove(channelID).isEmpty) {
-      throw new AssertionError(s"Channel $channelID is unknown to node $id")
+    channels.remove(channelID) match {
+      case Some(channelView) =>
+        for (direction <- Seq(ChannelDirection.AtoB, ChannelDirection.BtoA)) {
+          // val edge = ChannelWithDirection(channelView.channel, direction)
+          // graphView.channelGraph.removeEdge(edge)
+        }
+
+      case None =>
+        throw new AssertionError(s"Channel $channelID is unknown to node $id")
     }
   }
 
-  def handleUpdateAddHTLC(sender: Node, message: UpdateAddHTLC, blockNumber: BlockNumber)
+  def handleChannelOpenedOnChain(channelID: ChannelID)
+                                (implicit sendMessage: (TimeDelta, Node, Message) => Unit): Unit = {
+    channels.get(channelID) match {
+      case Some(channelView) =>
+        channelView.transition(ChannelView.Status.Active)
+
+      case None =>
+        throw new AssertionError(s"Cannot handle ChannelOpened for unknown channel $channelID")
+    }
+  }
+
+  def handleUpdateAddHTLC(sender: Node, message: UpdateAddHTLC)
                          (implicit sendMessage: (TimeDelta, Node, Message) => Unit): Unit = {
     val UpdateAddHTLC(route, index) = message
     val hop = route.hops(index)
@@ -75,7 +106,7 @@ class Node(val id: NodeID, val params: Node.Params, private val router: Router) 
       }
     } else {
       // Final hop in the circuit.
-      val maybeError = acceptHTLC(hop, route.finalHop, blockNumber)
+      val maybeError = acceptHTLC(hop, route.finalHop)
       val delay = HTLCUpdateProcessingTime
       maybeError match {
         case Some(error) => sendMessage(delay, sender, UpdateFailHTLC(route, index, error))
@@ -160,7 +191,47 @@ class Node(val id: NodeID, val params: Node.Params, private val router: Router) 
     }
   }
 
-  private def acceptHTLC(htlc: HTLC, finalHop: FinalHop, blockNumber: BlockNumber): Option[RoutingError] = {
+  def handleOpenChannel(otherNode: Node, message: OpenChannel)
+                       (implicit sendMessage: (TimeDelta, Node, Message) => Unit): Unit = {
+    // TODO: Sanity check params
+    val acceptMsg = AcceptChannel(message, params.requiredConfirmations, params.channelParams(message.capacity))
+    sendMessage(OpenChannelProcessingTime, otherNode, acceptMsg)
+  }
+
+  def handleAcceptChannel(otherNode: Node, acceptMsg: AcceptChannel)
+                         (implicit sendMessage: (TimeDelta, Node, Message) => Unit): Unit = {
+    // TODO: Sanity check params
+    val openMsg = acceptMsg.openMsg
+    val channelID = acceptMsg.openMsg.id
+    channelOpen(
+      channelID = openMsg.id,
+      otherNode = otherNode,
+      requiredConfirmations = acceptMsg.minimumDepth,
+      localBalance = openMsg.capacity,
+      remoteBalance = 0,
+      localParams = openMsg.params,
+      remoteParams = acceptMsg.params
+    )
+    sendMessage(InsignificantTimeDelta, otherNode, FundingCreated(channelID, acceptMsg))
+  }
+
+  def handleFundingCreated(otherNode: Node, message: FundingCreated)
+                          (implicit sendMessage: (TimeDelta, Node, Message) => Unit): Unit = {
+    val acceptMsg = message.acceptMsg
+    val openMsg = acceptMsg.openMsg
+    val channelID = openMsg.id
+    channelOpen(
+      channelID = channelID,
+      otherNode = otherNode,
+      requiredConfirmations = acceptMsg.minimumDepth,
+      localBalance = 0,
+      remoteBalance = openMsg.capacity,
+      localParams = acceptMsg.params,
+      remoteParams = openMsg.params
+    )
+  }
+
+  private def acceptHTLC(htlc: HTLC, finalHop: FinalHop): Option[RoutingError] = {
     if (!finalHop.paymentIDKnown) {
       return Some(UnknownPaymentHash)
     }
@@ -170,14 +241,16 @@ class Node(val id: NodeID, val params: Node.Params, private val router: Router) 
     if (htlc.expiry < finalHop.expiry) {
       return Some(FinalIncorrectExpiry(htlc.expiry))
     }
-    if (finalHop.expiry < blockNumber + params.finalExpiryDelta) {
+    if (finalHop.expiry < blockchain.blockNumber + params.finalExpiryDelta) {
       return Some(FinalExpiryTooSoon)
     }
     None
   }
 
+  /*
   def channel(id: ChannelID): Option[Channel] = channels.get(id).map(_.channel)
   def channelIterator: Iterator[Channel] = channels.valuesIterator.map(_.channel)
+ */
 
   def newPayments(): List[PaymentInfo] = List.empty
 
@@ -185,11 +258,12 @@ class Node(val id: NodeID, val params: Node.Params, private val router: Router) 
     * Return the time delay until the node should next be queried to initiate new payments. This
     * is a lower bound on the next time a payment may be initiated by this node.
     *
-    * The naive strategy implemented for now is to query every minute.
+    * The naive strategy implemented to send payments by a Poisson process with expected time
+    * 10 minutes.
     */
-  def nextPaymentQuery: TimeDelta = secondsToTimeDelta(60)
+  def nextPaymentQuery: TimeDelta = Util.drawExponential(10 * 60 * 1000)
 
-  def route(paymentInfo: PaymentInfo, blockNumber: BlockNumber, paymentIDKnown: Boolean): Option[RoutingPacket] = {
+  def route(paymentInfo: PaymentInfo, paymentIDKnown: Boolean): Option[RoutingPacket] = {
     val pathIterator = router.findPath(paymentInfo, graphView)
     if (pathIterator.isEmpty) {
       return None
@@ -199,7 +273,7 @@ class Node(val id: NodeID, val params: Node.Params, private val router: Router) 
     val hops = Array.ofDim[HTLC](path.length)
     val finalHop: FinalHop = FinalHop(
       amount = paymentInfo.amount,
-      expiry = blockNumber + paymentInfo.finalExpiryDelta,
+      expiry = blockchain.blockNumber + paymentInfo.finalExpiryDelta,
       paymentIDKnown = paymentIDKnown
     )
 
@@ -214,10 +288,50 @@ class Node(val id: NodeID, val params: Node.Params, private val router: Router) 
 
     Some(RoutingPacket(hops, finalHop))
   }
+
+  def sendPayment(paymentInfo: PaymentInfo)
+                 (implicit sendMessage: (TimeDelta, Node, Message) => Unit): Unit = {
+    route(paymentInfo, paymentIDKnown = true) match {
+      // Attempt to send payment through the Lightning Network if a route is found.
+      case Some(routingPacket) =>
+        val firstHop = routingPacket.hops.head
+        sendMessage(RoutingTime, firstHop.recipient, UpdateAddHTLC(routingPacket, 0))
+
+      // Otherwise, open a channel directly to the peer
+      case None =>
+        val capacity = newChannelCapacity(paymentInfo.recipient.id, paymentInfo.amount)
+        val channelID = Util.randomUUID()
+        val channelParams = params.channelParams(capacity)
+        sendMessage(RoutingTime, paymentInfo.recipient, OpenChannel(channelID, capacity, channelParams))
+    }
+  }
+
+  def newChannelCapacity(_node: NodeID, initialPaymentAmount: Value): Value =
+    initialPaymentAmount * CapacityMultiplier
 }
 
 object Node {
   val HTLCUpdateProcessingTime = 10
+  val RoutingTime = 10
+  val OpenChannelProcessingTime = 1
+  val InsignificantTimeDelta = 1
+  val CapacityMultiplier = 4
 
-  case class Params(finalExpiryDelta: BlockDelta)
+  case class Params(reserveToFundingRatio: Double,
+                    dustLimit: Value,
+                    maxHTLCInFlight: Value,
+                    maxAcceptedHTLCs: Int,
+                    htlcMinimum: Value,
+                    requiredConfirmations: BlockDelta,
+                    finalExpiryDelta: BlockDelta) {
+
+    def channelParams(capacity: Value): ChannelParams =
+      ChannelParams(
+        (capacity * reserveToFundingRatio).toLong,
+        dustLimit,
+        maxHTLCInFlight,
+        maxAcceptedHTLCs,
+        htlcMinimum
+      )
+  }
 }
