@@ -8,4 +8,3 @@ package object events {
   case class ReceiveMessage(sender: NodeActor, recipient: NodeActor, message: Message) extends Base
   case class QueryNewPayment() extends Base
 }
-

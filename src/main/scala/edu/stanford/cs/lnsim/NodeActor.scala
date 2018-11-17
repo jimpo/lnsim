@@ -1,6 +1,6 @@
 package edu.stanford.cs.lnsim
 
-import edu.stanford.cs.lnsim.des.{TimeDelta, Timestamp, secondsToTimeDelta}
+import edu.stanford.cs.lnsim.des.{TimeDelta, Timestamp}
 import edu.stanford.cs.lnsim.graph.{Channel, ChannelUpdate}
 import edu.stanford.cs.lnsim.log.StructuredLogging
 import edu.stanford.cs.lnsim.routing.{NetworkGraphView, Router}
@@ -9,7 +9,7 @@ import scala.collection.mutable
 
 import spray.json._
 import spray.json.DefaultJsonProtocol._
-import LNSJSONProtocol._
+import JSONProtocol._
 
 class NodeActor(val id: NodeID,
                 val params: NodeActor.Params,
@@ -42,11 +42,6 @@ class NodeActor(val id: NodeID,
     )
     channels(channelID) = new ChannelView(otherNode, localBalance, remoteBalance, localParams, remoteParams)
     blockchain.subscribeChannelConfirmed(channelID, requiredConfirmations)
-
-//    for (direction <- Seq(ChannelDirection.AtoB, ChannelDirection.BtoA)) {
-//      val edge = ChannelWithDirection(channel, direction)
-//      graphView.channelGraph.addEdge(edge.sender.id, edge.recipient.id, edge)
-//    }
   }
 
   def handleChannelOpenedOnChain(channelID: ChannelID, timestamp: Timestamp)

@@ -3,13 +3,9 @@ package edu.stanford.cs.lnsim
 import edu.stanford.cs.lnsim.graph.NetworkGraph
 import edu.stanford.cs.lnsim.routing.{MinimalFeeRouter, NetworkGraphView}
 
-import scala.util.Random
-
 /**
   * Extremely dumb graph builder that creates channels between random nodes
   * of a fixed capacity, where the initial channel balance is even.
-  *
-  * @param rand
   */
 class RandomGraphBuilder(private val numNodes: Int,
                          private val avgChannelsPerNode: Int,

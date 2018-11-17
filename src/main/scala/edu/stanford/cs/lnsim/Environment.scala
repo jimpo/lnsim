@@ -4,7 +4,7 @@ import edu.stanford.cs.lnsim.des.{TimeDelta, Timestamp}
 import edu.stanford.cs.lnsim.log.StructuredLogging
 import spray.json._
 import spray.json.DefaultJsonProtocol._
-import LNSJSONProtocol._
+import JSONProtocol._
 
 import scala.util.Random
 
