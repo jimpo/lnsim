@@ -28,7 +28,7 @@ class Environment(private val nodes: Map[NodeID, NodeActor],
       for (notification <- blockchain.blockArrived()) notification match {
         case Blockchain.ChannelOpened(channelID, nodeID) =>
           val node = nodes(nodeID)
-          implicit val sendMessage = createNetworkConnection(node, scheduleEvent) _
+          implicit val sendMessage = new EnvNodeActions(node, scheduleEvent)
           node.handleChannelOpenedOnChain(channelID, timestamp)
         case Blockchain.ChannelClosed(channelID) =>
       }
@@ -36,11 +36,11 @@ class Environment(private val nodes: Map[NodeID, NodeActor],
 
     case events.NewPayment(paymentInfo) =>
       val sender = paymentInfo.sender
-      implicit val sendMessage = createNetworkConnection(sender, scheduleEvent) _
+      implicit val sendMessage = new EnvNodeActions(sender, scheduleEvent)
       sender.sendPayment(paymentInfo)
 
     case events.ReceiveMessage(sender, recipient, message) =>
-      implicit val sendMessage = createNetworkConnection(recipient, scheduleEvent) _
+      implicit val sendMessage = new EnvNodeActions(recipient, scheduleEvent)
 
       message match {
         case message @ OpenChannel(_, _, _, _) => recipient.handleOpenChannel(sender.id, message)
@@ -85,12 +85,14 @@ class Environment(private val nodes: Map[NodeID, NodeActor],
 
   private def nodeReceiveTime(node: NodeActor): TimeDelta = Util.drawExponential(node.meanNetworkLatency)
 
-  private def createNetworkConnection(node: NodeActor, scheduleEvent: (TimeDelta, Event) => Unit)
-                                     (delay: TimeDelta, msgRecipientID: NodeID, newMessage: Message): Unit = {
-    val msgRecipient = nodes(msgRecipientID)
-    scheduleEvent(
-      delay + nodeReceiveTime(msgRecipient),
-      events.ReceiveMessage(node, msgRecipient, newMessage)
-    )
+  private class EnvNodeActions(private val node: NodeActor,
+                               private val scheduleEvent: (TimeDelta, Event) => Unit) extends NodeActions {
+    override def sendMessage(delay: TimeDelta, recipientID: NodeID, message: Message): Unit = {
+      val recipient = nodes(recipientID)
+      scheduleEvent(
+        delay + nodeReceiveTime(recipient),
+        events.ReceiveMessage(node, recipient, message)
+      )
+    }
   }
 }
