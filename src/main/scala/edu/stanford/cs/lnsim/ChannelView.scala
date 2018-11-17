@@ -24,33 +24,35 @@ class ChannelView(val otherNode: NodeID,
     }
   }
 
-  def addLocalHTLC(htlc: HTLC.Desc): Option[Error.Value] = ourState.addHTLC(htlc, theirParams)
-  def addRemoteHTLC(htlc: HTLC.Desc): Option[Error.Value] = theirState.addHTLC(htlc, ourParams)
+  def addLocalHTLC(htlc: HTLC.Desc): Option[Error.Value] =
+    ourState.addHTLC(htlc, theirParams)
+  def addRemoteHTLC(htlc: HTLC.Desc): Option[Error.Value] =
+    theirState.addHTLC(htlc, ourParams)
 
-  def failLocalHTLC(id: HTLCID): Option[Error.Value] = ourState.removeHTLC(id) match {
+  def failLocalHTLC(id: HTLCID): Either[Error.Value, HTLC.Desc] = ourState.removeHTLC(id) match {
     case Some(htlc) =>
       ourState.balance += htlc.amount
-      None
-    case None => Some(Error.IncorrectHTLCID)
+      Right(htlc)
+    case None => Left(Error.IncorrectHTLCID)
   }
-  def failRemoteHTLC(id: HTLCID): Option[Error.Value] = theirState.removeHTLC(id) match {
+  def failRemoteHTLC(id: HTLCID): Either[Error.Value, HTLC.Desc] = theirState.removeHTLC(id) match {
     case Some(htlc) =>
       theirState.balance += htlc.amount
-      None
-    case None => Some(Error.IncorrectHTLCID)
+      Right(htlc)
+    case None => Left(Error.IncorrectHTLCID)
   }
 
-  def fulfillLocalHTLC(id: HTLCID): Option[Error.Value] = ourState.removeHTLC(id) match {
+  def fulfillLocalHTLC(id: HTLCID): Either[Error.Value, HTLC.Desc] = ourState.removeHTLC(id) match {
     case Some(htlc) =>
       theirState.balance += htlc.amount
-      None
-    case None => Some(Error.IncorrectHTLCID)
+      Right(htlc)
+    case None => Left(Error.IncorrectHTLCID)
   }
-  def fulfillRemoteHTLC(id: HTLCID): Option[Error.Value] = theirState.removeHTLC(id) match {
+  def fulfillRemoteHTLC(id: HTLCID): Either[Error.Value, HTLC.Desc] = theirState.removeHTLC(id) match {
     case Some(htlc) =>
       ourState.balance += htlc.amount
-      None
-    case None => Some(Error.IncorrectHTLCID)
+      Right(htlc)
+    case None => Left(Error.IncorrectHTLCID)
   }
 
   def ourNextHTLCID: HTLCID = ourState.nextHTLCID

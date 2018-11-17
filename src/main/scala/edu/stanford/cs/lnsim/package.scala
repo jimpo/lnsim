@@ -24,7 +24,7 @@ package object lnsim {
     def sender: NodeID = channel.source
     def recipient: NodeID = channel.target
 
-    def id: Int = desc.id
+    def id: HTLCID = desc.id
     def amount: Value = desc.amount
     def expiry: BlockNumber = desc.expiry
     def paymentID: PaymentID = desc.paymentID
@@ -74,10 +74,15 @@ package object lnsim {
   /**
     * A complete routing packet that is sent through the circuit.
     *
-    * @param hops Routing info for each hop along the route.
+    * @param forwardHops Routing info for each hop forwards along the route.
     * @param finalHop Routing info on the final hop of the route.
+    * @param backwardHops Routing info for each hop backwards along the route.
     */
-  case class RoutingPacket(hops: Array[HTLC], finalHop: FinalHop)
+  case class ForwardRoutingPacket(hops: List[HTLC],
+                                  finalHop: FinalHop,
+                                  backwardRoute: BackwardRoutingPacket)
+
+  case class BackwardRoutingPacket(hops: List[(Channel, HTLCID)])
 
   /**
     * A node announcement that is broadcast through network gossip. See BOLT 7.

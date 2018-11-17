@@ -46,9 +46,9 @@ class Environment(private val nodes: Map[NodeID, NodeActor],
         case message @ OpenChannel(_, _, _, _) => recipient.handleOpenChannel(sender.id, message)
         case message @ AcceptChannel(_, _, _) => recipient.handleAcceptChannel(sender.id, message)
         case message @ FundingCreated(_, _) => recipient.handleFundingCreated(sender.id, message)
-        case message @ UpdateAddHTLC(_, _) => recipient.handleUpdateAddHTLC(sender.id, message)
-        case message @ UpdateFulfillHTLC(_, _) => recipient.handleUpdateFulfillHTLC(sender.id, message)
-        case message @ UpdateFailHTLC(_, _, _) => recipient.handleUpdateFailHTLC(sender.id, message)
+        case message @ UpdateAddHTLC(_) => recipient.handleUpdateAddHTLC(sender.id, message)
+        case message @ UpdateFulfillHTLC(_) => recipient.handleUpdateFulfillHTLC(sender.id, message)
+        case message @ UpdateFailHTLC( _, _) => recipient.handleUpdateFailHTLC(sender.id, message)
       }
 
     case events.QueryNewPayment() =>

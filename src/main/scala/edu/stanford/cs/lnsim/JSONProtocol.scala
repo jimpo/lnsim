@@ -40,6 +40,10 @@ object JSONProtocol {
     override def read(json: JsValue): PaymentInfo = ???
   }
 
+  implicit object RoutingErrorWriter extends JsonWriter[RoutingError] {
+    override def write(error: RoutingError): JsValue = error.toString.toJson
+  }
+
   implicit val StartFormat: RootJsonFormat[events.Start] =
     jsonFormat0(events.Start)
   implicit val NewBlockFormat: RootJsonFormat[events.NewBlock] =
