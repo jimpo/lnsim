@@ -2,7 +2,7 @@ package edu.stanford.cs.lnsim
 
 import scala.collection.mutable
 
-class ChannelView(val otherNode: Node,
+class ChannelView(val otherNode: NodeID,
                   val ourInitialBalance: Value,
                   val theirInitialBalance: Value,
                   val ourParams: ChannelParams,

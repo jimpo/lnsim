@@ -5,7 +5,7 @@ package object events {
   case class Start() extends Base
   case class NewBlock(number: Int) extends Base
   case class NewPayment(paymentInfo: PaymentInfo) extends Base
-  case class ReceiveMessage(sender: Node, recipient: Node, message: Message) extends Base
-  case class QueryNewPayment(node: Node) extends Base
+  case class ReceiveMessage(sender: NodeActor, recipient: NodeActor, message: Message) extends Base
+  case class QueryNewPayment() extends Base
 }
 

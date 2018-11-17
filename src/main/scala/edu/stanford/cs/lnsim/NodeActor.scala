@@ -1,23 +1,29 @@
 package edu.stanford.cs.lnsim
 
 import edu.stanford.cs.lnsim.des.{TimeDelta, Timestamp, secondsToTimeDelta}
+import edu.stanford.cs.lnsim.graph.{Channel, ChannelUpdate}
+import edu.stanford.cs.lnsim.log.StructuredLogging
 import edu.stanford.cs.lnsim.routing.{NetworkGraphView, Router}
 
 import scala.collection.mutable
 
-class Node(val id: NodeID,
-           val params: Node.Params,
-           private val router: Router,
-           private val blockchain: BlockchainView) {
-  import Node._
+import spray.json._
+import spray.json.DefaultJsonProtocol._
+import LNSJSONProtocol._
+
+class NodeActor(val id: NodeID,
+                val params: NodeActor.Params,
+                private val router: Router,
+                private val graphView: NetworkGraphView,
+                private val blockchain: BlockchainView) extends StructuredLogging {
+  import NodeActor._
 
   private val channels: mutable.Map[ChannelID, ChannelView] = mutable.HashMap.empty
-  private val graphView: NetworkGraphView = new NetworkGraphView()
 
   def meanNetworkLatency: Double = 1
 
   def channelOpen(channelID: ChannelID,
-                  otherNode: Node,
+                  otherNode: NodeID,
                   requiredConfirmations: BlockDelta,
                   localBalance: Value,
                   remoteBalance: Value,
@@ -26,6 +32,14 @@ class Node(val id: NodeID,
     if (channels.contains(channelID)) {
       throw new AssertionError(s"Channel ${channelID} has already been added to node $id")
     }
+
+    logger.info(
+      "msg" -> "Opening new channel".toJson,
+      "channelID" -> channelID.toJson,
+      "thisNode" -> id.toJson,
+      "otherNode" -> otherNode.toJson,
+      "capacity" -> (localBalance + remoteBalance).toJson
+    )
     channels(channelID) = new ChannelView(otherNode, localBalance, remoteBalance, localParams, remoteParams)
     blockchain.subscribeChannelConfirmed(channelID, requiredConfirmations)
 
@@ -35,32 +49,26 @@ class Node(val id: NodeID,
 //    }
   }
 
-  def channelClose(channelID: ChannelID): Unit = {
-    channels.remove(channelID) match {
-      case Some(channelView) =>
-        for (direction <- Seq(ChannelDirection.AtoB, ChannelDirection.BtoA)) {
-          // val edge = ChannelWithDirection(channelView.channel, direction)
-          // graphView.channelGraph.removeEdge(edge)
-        }
-
-      case None =>
-        throw new AssertionError(s"Channel $channelID is unknown to node $id")
-    }
-  }
-
-  def handleChannelOpenedOnChain(channelID: ChannelID)
-                                (implicit sendMessage: (TimeDelta, Node, Message) => Unit): Unit = {
+  def handleChannelOpenedOnChain(channelID: ChannelID, timestamp: Timestamp)
+                                (implicit sendMessage: (TimeDelta, NodeID, Message) => Unit): Unit = {
     channels.get(channelID) match {
       case Some(channelView) =>
         channelView.transition(ChannelView.Status.Active)
+        val update = channelUpdate(
+          timestamp,
+          disabled = false,
+          capacity = channelView.ourInitialBalance + channelView.theirInitialBalance,
+          theirChannelParams = channelView.theirParams
+        )
+        graphView.updateChannel(Channel(channelID, id, channelView.otherNode, update))
 
       case None =>
         throw new AssertionError(s"Cannot handle ChannelOpened for unknown channel $channelID")
     }
   }
 
-  def handleUpdateAddHTLC(sender: Node, message: UpdateAddHTLC)
-                         (implicit sendMessage: (TimeDelta, Node, Message) => Unit): Unit = {
+  def handleUpdateAddHTLC(sender: NodeID, message: UpdateAddHTLC)
+                         (implicit sendMessage: (TimeDelta, NodeID, Message) => Unit): Unit = {
     val UpdateAddHTLC(route, index) = message
     val hop = route.hops(index)
     val node = hop.recipient
@@ -115,8 +123,8 @@ class Node(val id: NodeID,
     }
   }
 
-  def handleUpdateFailHTLC(sender: Node, message: UpdateFailHTLC)
-                          (implicit sendMessage: (TimeDelta, Node, Message) => Unit): Unit = {
+  def handleUpdateFailHTLC(sender: NodeID, message: UpdateFailHTLC)
+                          (implicit sendMessage: (TimeDelta, NodeID, Message) => Unit): Unit = {
     val UpdateFailHTLC(route, index, error) = message
     val hop = route.hops(index)
     val node = hop.sender
@@ -154,8 +162,8 @@ class Node(val id: NodeID,
     }
   }
 
-  def handleUpdateFulfillHTLC(sender: Node, message: UpdateFulfillHTLC)
-                             (implicit sendMessage: (TimeDelta, Node, Message) => Unit): Unit = {
+  def handleUpdateFulfillHTLC(sender: NodeID, message: UpdateFulfillHTLC)
+                             (implicit sendMessage: (TimeDelta, NodeID, Message) => Unit): Unit = {
     val UpdateFulfillHTLC(route, index) = message
     val hop = route.hops(index)
     val node = hop.sender
@@ -191,32 +199,46 @@ class Node(val id: NodeID,
     }
   }
 
-  def handleOpenChannel(otherNode: Node, message: OpenChannel)
-                       (implicit sendMessage: (TimeDelta, Node, Message) => Unit): Unit = {
+  def handleOpenChannel(otherNode: NodeID, message: OpenChannel)
+                       (implicit sendMessage: (TimeDelta, NodeID, Message) => Unit): Unit = {
     // TODO: Sanity check params
+    logger.info(
+      "msg" -> "handleOpenChannel".toJson,
+      "thisNode" -> id.toJson,
+      "otherNode" -> otherNode.toJson
+    )
     val acceptMsg = AcceptChannel(message, params.requiredConfirmations, params.channelParams(message.capacity))
     sendMessage(OpenChannelProcessingTime, otherNode, acceptMsg)
   }
 
-  def handleAcceptChannel(otherNode: Node, acceptMsg: AcceptChannel)
-                         (implicit sendMessage: (TimeDelta, Node, Message) => Unit): Unit = {
+  def handleAcceptChannel(otherNode: NodeID, acceptMsg: AcceptChannel)
+                         (implicit sendMessage: (TimeDelta, NodeID, Message) => Unit): Unit = {
     // TODO: Sanity check params
     val openMsg = acceptMsg.openMsg
     val channelID = acceptMsg.openMsg.id
+
+    // The initiating node broadcasts the funding transactions to the blockchain.
+    blockchain.newFundingTransaction(channelID)
+
+    logger.info(
+      "msg" -> "Channel was accepted".toJson,
+      "thisNode" -> id.toJson,
+      "otherNode" -> otherNode.toJson
+    )
     channelOpen(
       channelID = openMsg.id,
       otherNode = otherNode,
       requiredConfirmations = acceptMsg.minimumDepth,
-      localBalance = openMsg.capacity,
-      remoteBalance = 0,
+      localBalance = openMsg.capacity - openMsg.pushAmount,
+      remoteBalance = openMsg.pushAmount,
       localParams = openMsg.params,
       remoteParams = acceptMsg.params
     )
     sendMessage(InsignificantTimeDelta, otherNode, FundingCreated(channelID, acceptMsg))
   }
 
-  def handleFundingCreated(otherNode: Node, message: FundingCreated)
-                          (implicit sendMessage: (TimeDelta, Node, Message) => Unit): Unit = {
+  def handleFundingCreated(otherNode: NodeID, message: FundingCreated)
+                          (implicit sendMessage: (TimeDelta, NodeID, Message) => Unit): Unit = {
     val acceptMsg = message.acceptMsg
     val openMsg = acceptMsg.openMsg
     val channelID = openMsg.id
@@ -224,8 +246,8 @@ class Node(val id: NodeID,
       channelID = channelID,
       otherNode = otherNode,
       requiredConfirmations = acceptMsg.minimumDepth,
-      localBalance = 0,
-      remoteBalance = openMsg.capacity,
+      localBalance = openMsg.pushAmount,
+      remoteBalance = openMsg.capacity - openMsg.pushAmount,
       localParams = acceptMsg.params,
       remoteParams = openMsg.params
     )
@@ -252,17 +274,6 @@ class Node(val id: NodeID,
   def channelIterator: Iterator[Channel] = channels.valuesIterator.map(_.channel)
  */
 
-  def newPayments(): List[PaymentInfo] = List.empty
-
-  /**
-    * Return the time delay until the node should next be queried to initiate new payments. This
-    * is a lower bound on the next time a payment may be initiated by this node.
-    *
-    * The naive strategy implemented to send payments by a Poisson process with expected time
-    * 10 minutes.
-    */
-  def nextPaymentQuery: TimeDelta = Util.drawExponential(10 * 60 * 1000)
-
   def route(paymentInfo: PaymentInfo, paymentIDKnown: Boolean): Option[RoutingPacket] = {
     val pathIterator = router.findPath(paymentInfo, graphView)
     if (pathIterator.isEmpty) {
@@ -280,8 +291,8 @@ class Node(val id: NodeID,
     var amount = finalHop.amount
     var expiry = finalHop.expiry
     for ((edge, i) <- path.reverseIterator.toIndexedSeq) {
-      val channelUpdate = edge.channelUpdate
-      hops(i) = HTLC(edge.channel, edge.direction, HTLC.Desc(-1, amount, expiry, paymentInfo.paymentID))
+      val channelUpdate = edge.lastUpdate
+      hops(i) = HTLC(edge, HTLC.Desc(-1, amount, expiry, paymentInfo.paymentID))
       amount += channelUpdate.feeBase + amount * channelUpdate.feeProportionalMillionths / 1000000
       expiry += channelUpdate.expiryDelta
     }
@@ -290,27 +301,69 @@ class Node(val id: NodeID,
   }
 
   def sendPayment(paymentInfo: PaymentInfo)
-                 (implicit sendMessage: (TimeDelta, Node, Message) => Unit): Unit = {
+                 (implicit sendMessage: (TimeDelta, NodeID, Message) => Unit): Unit = {
+    if (paymentInfo.recipientID == id) {
+      logger.warn(
+        "msg" -> "Failed attempt to send payment to self".toJson,
+        "paymentID" -> paymentInfo.paymentID.toJson
+      )
+      return
+    }
+    if (paymentInfo.recipientID.equals(id)) {
+      logger.warn(
+        "msg" -> "Well, that was unexpected".toJson,
+        "paymentID" -> paymentInfo.paymentID.toJson
+      )
+      return
+    }
+
     route(paymentInfo, paymentIDKnown = true) match {
       // Attempt to send payment through the Lightning Network if a route is found.
       case Some(routingPacket) =>
         val firstHop = routingPacket.hops.head
+
+        logger.debug(
+          "msg" -> "Attempting to complete payment through Lightning Network".toJson,
+          "paymentID" -> paymentInfo.paymentID.toJson
+        )
         sendMessage(RoutingTime, firstHop.recipient, UpdateAddHTLC(routingPacket, 0))
 
       // Otherwise, open a channel directly to the peer
       case None =>
-        val capacity = newChannelCapacity(paymentInfo.recipient.id, paymentInfo.amount)
+        val capacity = newChannelCapacity(paymentInfo.recipientID, paymentInfo.amount)
         val channelID = Util.randomUUID()
         val channelParams = params.channelParams(capacity)
-        sendMessage(RoutingTime, paymentInfo.recipient, OpenChannel(channelID, capacity, channelParams))
+        val openMsg = OpenChannel(channelID, capacity, paymentInfo.amount, channelParams)
+
+        logger.info(
+          "msg" -> "Attempting to complete payment by opening new direct channel".toJson,
+          "channelID" -> channelID.toJson,
+          "paymentID" -> paymentInfo.paymentID.toJson
+        )
+        sendMessage(RoutingTime, paymentInfo.recipientID, openMsg)
     }
   }
 
-  def newChannelCapacity(_node: NodeID, initialPaymentAmount: Value): Value =
+  private def newChannelCapacity(_node: NodeID, initialPaymentAmount: Value): Value =
     initialPaymentAmount * CapacityMultiplier
+
+  private def channelUpdate(timestamp: Timestamp,
+                            disabled: Boolean,
+                            capacity: Value,
+                            theirChannelParams: ChannelParams): ChannelUpdate = {
+    ChannelUpdate(
+      timestamp,
+      disabled,
+      expiryDelta = params.expiryDelta,
+      htlcMinimum = theirChannelParams.htlcMinimum,
+      htlcMaximum = math.min(theirChannelParams.maxHTLCInFlight, capacity),
+      feeBase = params.feeBase,
+      feeProportionalMillionths = params.feeProportionalMillionths
+    )
+  }
 }
 
-object Node {
+object NodeActor {
   val HTLCUpdateProcessingTime = 10
   val RoutingTime = 10
   val OpenChannelProcessingTime = 1
@@ -323,7 +376,10 @@ object Node {
                     maxAcceptedHTLCs: Int,
                     htlcMinimum: Value,
                     requiredConfirmations: BlockDelta,
-                    finalExpiryDelta: BlockDelta) {
+                    finalExpiryDelta: BlockDelta,
+                    expiryDelta: BlockDelta,
+                    feeBase: Value,
+                    feeProportionalMillionths: Long) {
 
     def channelParams(capacity: Value): ChannelParams =
       ChannelParams(

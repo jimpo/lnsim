@@ -1,55 +1,57 @@
 package edu.stanford.cs.lnsim.routing
 
-import scala.collection.JavaConverters._
 import edu.stanford.cs.lnsim._
-import org.jgrapht.alg.shortestpath.DijkstraShortestPath
+import edu.stanford.cs.lnsim.graph.Channel
+
+import scala.collection.mutable
 
 class MinimalFeeRouter(maxFee: Value) extends Router {
 
-  /*
-  /**
-    * Find a route in the graph between localNodeId and targetNodeId
-    *
-    * @param g
-    * @param localNodeId
-    * @param targetNodeId
-    * @param withEdges    those will be added before computing the route, and removed after so that g is left unchanged
-    * @param withoutEdges those will be removed before computing the route, and added back after so that g is left unchanged
-    * @return
-    */
-  def findRoute(g: DirectedWeightedPseudograph[PublicKey, DescEdge], localNodeId: PublicKey, targetNodeId: PublicKey, withEdges: Map[ChannelDesc, ChannelUpdate] = Map.empty, withoutEdges: Iterable[ChannelDesc] = Iterable.empty): Try[Seq[Hop]] = Try {
-    if (localNodeId == targetNodeId) throw CannotRouteToSelf
-    val workingGraph = if (withEdges.isEmpty && withoutEdges.isEmpty) {
-      // no filtering, let's work on the base graph
-      g
-    } else {
-      // slower but safer: we duplicate the graph and add/remove updates from the duplicated version
-      val clonedGraph = g.clone().asInstanceOf[DirectedWeightedPseudograph[PublicKey, DescEdge]]
-      withEdges.foreach { case (d, u) =>
-        removeEdge(clonedGraph, d)
-        addEdge(clonedGraph, d, u)
-      }
-      withoutEdges.foreach { d => removeEdge(clonedGraph, d) }
-      clonedGraph
-    }
-    if (!workingGraph.containsVertex(localNodeId)) throw RouteNotFound
-    if (!workingGraph.containsVertex(targetNodeId)) throw RouteNotFound
-    val route_opt = Option(DijkstraShortestPath.findPathBetween(workingGraph, localNodeId, targetNodeId))
-    route_opt match {
-      case Some(path) => path.getEdgeList.map(edge => Hop(edge.desc.a, edge.desc.b, edge.u))
-      case None => throw RouteNotFound
-    }
-  }
-  */
-  override def findPath(paymentInfo: PaymentInfo, graphView: NetworkGraphView): Iterator[ChannelWithDirection] = {
+  override def findPath(paymentInfo: PaymentInfo, graph: NetworkGraphView): List[Channel] = {
     val source = paymentInfo.sender.id
-    val target = paymentInfo.recipient.id
-    val weightedGraph = new FeeWeightedGraphDecorator(graphView.channelGraph, paymentInfo.amount)
-    val path = DijkstraShortestPath.findPathBetween(weightedGraph, source, target)
-    if (path != null && path.getWeight <= maxFee) {
-      path.getEdgeList().iterator().asScala
-    } else {
-      Iterator.empty
+    val target = paymentInfo.recipientID
+
+    val distances = mutable.HashMap.empty[NodeID, (Value, Channel, Boolean)]
+    val queue = mutable.PriorityQueue.empty[(Value, NodeID)]
+
+    queue.enqueue((0, source))
+    distances.put(source, (0, null, false))
+
+    while (queue.nonEmpty) {
+      val (dist, nodeID) = queue.dequeue()
+      val (_, prev, visited) = distances(nodeID)
+      if (!visited) {
+        distances(nodeID) = (dist, prev, true)
+        if (nodeID == target) {
+          return recoverPath(source, target, distances)
+        }
+
+        val channels = graph.node(nodeID).map(_.channels.valuesIterator).getOrElse(Iterator.empty)
+        for (channel <- channels) {
+          val edgeWeight = channel.lastUpdate.feeBase +
+            (paymentInfo.amount * channel.lastUpdate.feeProportionalMillionths / 1000000.0).toLong
+          val newEstimate = dist + edgeWeight
+          val betterPath = distances.get(channel.target).map(newEstimate < _._1).getOrElse(true)
+          if (betterPath) {
+            distances(channel.target) = (newEstimate, channel, false)
+            queue.enqueue((newEstimate, channel.target))
+          }
+        }
+      }
     }
+    List.empty
+  }
+
+  private def recoverPath(source: NodeID, target: NodeID,
+                          distances: mutable.Map[NodeID, (Value, Channel, Boolean)]): List[Channel] = {
+
+    var nodeID = target
+    var channels: List[Channel] = Nil
+    while (nodeID != source) {
+      val (_, channel, _) = distances(nodeID)
+      channels = channel :: channels
+      nodeID = channel.source
+    }
+    channels
   }
 }

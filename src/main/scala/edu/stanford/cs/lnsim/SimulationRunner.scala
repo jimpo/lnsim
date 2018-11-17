@@ -18,8 +18,8 @@ object SimulationRunner extends App {
       )
       val graphBuilder = new RandomGraphBuilder(numNodes = 100, avgChannelsPerNode = 2, blockchain = blockchain)
       val env = new Environment(
-        blockchain = blockchain,
-        graphBuilder = graphBuilder
+        nodes = graphBuilder.build(),
+        blockchain = blockchain
       )
       val simulation = new Simulation[Environment](env, secondsToTimeDelta(config.duration))
 

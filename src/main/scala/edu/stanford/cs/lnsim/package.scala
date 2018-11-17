@@ -2,8 +2,8 @@ package edu.stanford.cs
 
 import java.util.UUID
 
-import edu.stanford.cs.lnsim.ChannelDirection._
 import edu.stanford.cs.lnsim.des.Timestamp
+import edu.stanford.cs.lnsim.graph.Channel
 
 package object lnsim {
   type NodeID = UUID
@@ -19,11 +19,10 @@ package object lnsim {
   type Value = Long
 
 
-  case class HTLC(channel: Channel,
-                  direction: ChannelDirection,
-                  desc: HTLC.Desc) {
-    def sender: Node = channel.sender(direction)
-    def recipient: Node = channel.recipient(direction)
+  case class HTLC(channel: Channel, desc: HTLC.Desc) {
+    def channelID: ChannelID = channel.id
+    def sender: NodeID = channel.source
+    def recipient: NodeID = channel.target
 
     def id: Int = desc.id
     def amount: Value = desc.amount
@@ -66,8 +65,8 @@ package object lnsim {
     * @param finalExpiryDelta The minimum expiry delta at the final hop.
     * @param paymentID The equivalent of a payment hash in the simulation environment.
     */
-  case class PaymentInfo(sender: Node,
-                         recipient: Node,
+  case class PaymentInfo(sender: NodeActor,
+                         recipientID: NodeID,
                          amount: Value,
                          finalExpiryDelta: BlockDelta,
                          paymentID: PaymentID)

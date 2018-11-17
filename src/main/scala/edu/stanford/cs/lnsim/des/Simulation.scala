@@ -28,14 +28,14 @@ class Simulation[Env <: Environment](private val environment: Env, val endTime: 
       val (newTime, event) = eventQueue.dequeue()
 
       // TODO: Working JSON serializer for Events
-      logger.info(
+      logger.debug(
         "message" -> "Processing event".toJson,
         "time" -> newTime.toString.toJson,
         "event" -> event.toString.toJson
       )
 
       currentTime = newTime
-      environment.processEvent(event, scheduleEvent)
+      environment.processEvent(event, currentTime, scheduleEvent)
     }
   }
 

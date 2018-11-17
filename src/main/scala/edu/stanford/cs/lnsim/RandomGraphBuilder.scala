@@ -1,6 +1,7 @@
 package edu.stanford.cs.lnsim
 
-import edu.stanford.cs.lnsim.routing.MinimalFeeRouter
+import edu.stanford.cs.lnsim.graph.NetworkGraph
+import edu.stanford.cs.lnsim.routing.{MinimalFeeRouter, NetworkGraphView}
 
 import scala.util.Random
 
@@ -15,30 +16,29 @@ class RandomGraphBuilder(private val numNodes: Int,
                          private val blockchain: Blockchain) {
   import RandomGraphBuilder._
 
-  def build(): NetworkGraph = {
+  def build(): Map[NodeID, NodeActor] = {
     val graph = new NetworkGraph()
-    buildNodes(graph, numNodes)
-    //createChannels(graph, numNodes * avgChannelsPerNode)
-    graph
-  }
-
-  private def buildNodes(graph: NetworkGraph, numNodes: Int): Unit = {
     val router = new MinimalFeeRouter(MaximumRoutingFee)
-    val params = Node.Params(
+    val params = NodeActor.Params(
       EclairDefaults.ReserveToFundingRatio,
       EclairDefaults.DustLimitSatoshis,
       EclairDefaults.MaxHTLCInFlight,
       EclairDefaults.MaxAcceptedHTLCs,
       EclairDefaults.HTLCMinimum,
       EclairDefaults.MinDepthBlocks,
-      EclairDefaults.FinalExpiryDelta
+      EclairDefaults.FinalExpiryDelta,
+      EclairDefaults.ExpiryDelta,
+      EclairDefaults.FeeBase,
+      EclairDefaults.FeeProportionalMillionths
     )
 
-    for (_ <- 0 until numNodes) {
+    val nodes = for (_ <- 0 until numNodes) yield {
       val nodeID = Util.randomUUID()
+      val graphView = new NetworkGraphView(graph)
       val blockchainView = new BlockchainView(nodeID, blockchain)
-      graph.addNode(new Node(nodeID, params, router, blockchainView))
+      new NodeActor(nodeID, params, router, graphView, blockchainView)
     }
+    Map(nodes.map(node => node.id -> node):_*)
   }
 
   /*
