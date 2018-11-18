@@ -1,7 +1,7 @@
 package edu.stanford.cs.lnsim
 
 import edu.stanford.cs.lnsim.des.{TimeDelta, Timestamp}
-import edu.stanford.cs.lnsim.log.StructuredLogging
+import edu.stanford.cs.lnsim.log.{StructuredLogger, StructuredLogging}
 import spray.json._
 import spray.json.DefaultJsonProtocol._
 import JSONProtocol._
@@ -18,6 +18,8 @@ class Environment(private val nodes: Map[NodeID, NodeActor],
   override def processEvent(event: Event,
                             timestamp: Timestamp,
                             scheduleEvent: (TimeDelta, Event) => Unit): Unit = {
+    StructuredLogger.setGlobal("time" -> timestamp.toJson)
+
     logger.debug(
       "message" -> "Processing event".toJson,
       "time" -> timestamp.toJson,
@@ -35,7 +37,7 @@ class Environment(private val nodes: Map[NodeID, NodeActor],
         for (notification <- blockchain.blockArrived()) notification match {
           case Blockchain.ChannelOpened(channelID, nodeID) =>
             val node = nodes(nodeID)
-            implicit val sendMessage = new EnvNodeActions(node, scheduleEvent)
+            implicit val actions = new EnvNodeActions(node, scheduleEvent)
             node.handleChannelOpenedOnChain(channelID, timestamp)
           case Blockchain.ChannelClosed(channelID) =>
         }
@@ -43,11 +45,11 @@ class Environment(private val nodes: Map[NodeID, NodeActor],
 
       case events.NewPayment(paymentInfo) =>
         val sender = paymentInfo.sender
-        implicit val sendMessage = new EnvNodeActions(sender, scheduleEvent)
-        sender.sendPayment(paymentInfo)
+        implicit val actions = new EnvNodeActions(sender, scheduleEvent)
+        sender.sendPayment(paymentInfo, timestamp)
 
       case events.ReceiveMessage(sender, recipient, message) =>
-        implicit val sendMessage = new EnvNodeActions(recipient, scheduleEvent)
+        implicit val actions = new EnvNodeActions(recipient, scheduleEvent)
 
         message match {
           case message @ OpenChannel(_, _, _, _) => recipient.handleOpenChannel(sender.id, message)
@@ -88,6 +90,10 @@ class Environment(private val nodes: Map[NodeID, NodeActor],
           val nextPaymentQuery = Util.drawExponential(10 * 60 * 1000)
           scheduleEvent(nextPaymentQuery, events.QueryNewPayment())
         }
+
+      case events.RetryPayment(node, payment) =>
+        implicit val actions = new EnvNodeActions(node, scheduleEvent)
+        node.executePayment(payment)
     }
   }
 
@@ -102,5 +108,8 @@ class Environment(private val nodes: Map[NodeID, NodeActor],
         events.ReceiveMessage(node, recipient, message)
       )
     }
+
+    override def retryPayment(delay: TimeDelta, payment: PendingPayment): Unit =
+      scheduleEvent(delay, events.RetryPayment(node, payment))
   }
 }

@@ -90,11 +90,23 @@ package object lnsim {
   case class NodeAnnouncement(nodeID: NodeID, timestamp: Timestamp)
 
   /**
+    * Tracks the state of a pending payment from a node. This information is used to determine how
+    * to retry the payment in case it fails.
+    *
+    * @param tries A count of the number of attempts to deliver this payment that already failed.
+    */
+  case class PendingPayment(info: PaymentInfo, timestamp: Timestamp, tries: Int)
+
+  /**
     * This exception is thrown when a node implementation returns some invalid data.
     *
     * @param msg Message describing the error.
     */
   class MisbehavingNodeException(msg: String) extends Exception(msg)
 
+  /**
+    * This exception is thrown if an unrecoverable error or an error that violations simulation
+    * assumptions occurs during HTLC processing.
+    */
   class HTLCUpdateFailure(msg: String) extends Exception(msg)
 }

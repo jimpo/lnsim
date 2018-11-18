@@ -12,12 +12,14 @@ import spray.json.DefaultJsonProtocol._
 object JSONProtocol {
   val ChannelUpdateFormat : RootJsonFormat[ChannelUpdate] = jsonFormat7(ChannelUpdate)
 
-  implicit object UUIDFormat extends JsonWriter[UUID] {
-    def write(uuid: UUID): JsValue = uuid.toString.toJson
+  implicit object UUIDFormat extends JsonFormat[UUID] {
+    override def write(uuid: UUID): JsValue = uuid.toString.toJson
+
+    override def read(json: JsValue): PaymentID = ???
   }
 
   implicit object ChannelFormat extends JsonWriter[Channel] {
-    def write(c: Channel) = JsObject(
+    override def write(c: Channel) = JsObject(
       "id" -> c.id.toJson,
       "source" -> c.source.toJson,
       "target" -> c.target.toJson,
@@ -25,10 +27,10 @@ object JSONProtocol {
   }
 
   implicit object NodeFormat extends JsonWriter[NodeActor] {
-    def write(n: NodeActor) = JsObject("id" -> JsString(n.id.toString))
+    override def write(n: NodeActor) = JsObject("id" -> JsString(n.id.toString))
   }
 
-  implicit object PaymentInfoWriter extends JsonFormat[PaymentInfo] {
+  implicit object PaymentInfoFormat extends JsonFormat[PaymentInfo] {
     override def write(paymentInfo: PaymentInfo): JsValue = JsObject(
       "sender" -> paymentInfo.sender.id.toJson,
       "recipient" -> paymentInfo.recipientID.toJson,
@@ -38,6 +40,17 @@ object JSONProtocol {
     )
 
     override def read(json: JsValue): PaymentInfo = ???
+  }
+
+  implicit object PendingPaymentFormat extends JsonFormat[PendingPayment] {
+    override def write(payment: PendingPayment): JsValue =
+      Util.extendJsObject(
+        payment.info.toJson.asJsObject,
+        "createAt" -> payment.timestamp.toJson,
+        "tries" -> payment.tries.toJson,
+      )
+
+    override def read(json: JsValue): PendingPayment = ???
   }
 
   implicit object RoutingErrorWriter extends JsonWriter[RoutingError] {
@@ -71,6 +84,10 @@ object JSONProtocol {
         "message" -> message.toJson,
       )
       case e @ events.QueryNewPayment() => QueryNewPaymentFormat.write(e)
+      case e @ events.RetryPayment(_, payment) => Util.extendJsObject(
+        payment.toJson.asJsObject,
+        "name" -> "RetryPayment".toJson,
+      )
     }
   }
 }

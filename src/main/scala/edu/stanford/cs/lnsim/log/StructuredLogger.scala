@@ -1,7 +1,7 @@
 package edu.stanford.cs.lnsim.log
 
 import org.apache.logging.log4j.{Level, Logger}
-import spray.json.{JsField, JsObject}
+import spray.json.{JsField, JsObject, JsValue}
 
 class StructuredLogger(val logger: Logger) {
   def trace(fields: JsField*): Unit = log(Level.TRACE, fields:_*)
@@ -11,5 +11,13 @@ class StructuredLogger(val logger: Logger) {
   def error(fields: JsField*): Unit = log(Level.ERROR, fields:_*)
   def fatal(fields: JsField*): Unit = log(Level.FATAL, fields:_*)
 
-  def log(l: Level, fields: JsField*): Unit = logger.log(l, JsObject(fields:_*))
+  def log(l: Level, fields: JsField*): Unit =
+    logger.log(l, JsObject(StructuredLogger.globals.toSeq ++ fields:_*))
+}
+
+object StructuredLogger {
+  private var globals: Map[String, JsValue] = Map.empty
+
+  def setGlobal(field: JsField): Unit = globals += field
+  def unsetGlobal(key: String): Unit = globals -= key
 }

@@ -2,6 +2,8 @@ package edu.stanford.cs.lnsim
 
 import java.util.UUID
 
+import spray.json.{JsField, JsObject}
+
 import scala.util.Random
 
 object Util {
@@ -23,4 +25,7 @@ object Util {
       }
     }
   }
+
+  def extendJsObject(obj: JsObject, fields: JsField*): JsObject =
+    JsObject((obj.fields.toSeq ++ fields): _*)
 }

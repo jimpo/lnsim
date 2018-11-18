@@ -19,8 +19,9 @@ class NodeActor(val id: NodeID,
   import NodeActor._
 
   private val channels: mutable.Map[ChannelID, ChannelView] = mutable.HashMap.empty
+  private val pendingPayments: mutable.Map[PaymentID, PendingPayment] = mutable.Map.empty
 
-  def meanNetworkLatency: Double = 1
+  def meanNetworkLatency: TimeDelta = 1000
 
   def channelOpen(channelID: ChannelID,
                   otherNode: NodeID,
@@ -191,7 +192,7 @@ class NodeActor(val id: NodeID,
       case Nil =>
         // Payment confirmation made it back to the original sender.
         logger.info(
-          "msg" -> "Payment completed off-chain".toJson,
+          "msg" -> "Payment completed".toJson,
           "paymentID" -> htlc.paymentID.toJson,
         )
     }
@@ -257,11 +258,6 @@ class NodeActor(val id: NodeID,
     None
   }
 
-  /*
-  def channel(id: ChannelID): Option[Channel] = channels.get(id).map(_.channel)
-  def channelIterator: Iterator[Channel] = channels.valuesIterator.map(_.channel)
- */
-
   def route(paymentInfo: PaymentInfo, paymentIDKnown: Boolean): Option[ForwardRoutingPacket] = {
     val pathIterator = router.findPath(paymentInfo, graphView)
     if (pathIterator.isEmpty) {
@@ -289,15 +285,30 @@ class NodeActor(val id: NodeID,
     Some(ForwardRoutingPacket(hops, finalHop, BackwardRoutingPacket(Nil)))
   }
 
-  def sendPayment(paymentInfo: PaymentInfo)
-                 (implicit actions: NodeActions): Unit = {
+  def sendPayment(paymentInfo: PaymentInfo, timestamp: Timestamp)
+                 (implicit actions: NodeActions): Unit =
+    executePayment(PendingPayment(paymentInfo, timestamp, tries = 0))
+
+  def executePayment(pendingPayment: PendingPayment)
+                    (implicit actions: NodeActions): Unit = {
+    val paymentInfo = pendingPayment.info
+    val paymentID = paymentInfo.paymentID
     if (paymentInfo.recipientID == id) {
       logger.warn(
         "msg" -> "Failed attempt to send payment to self".toJson,
-        "paymentID" -> paymentInfo.paymentID.toJson
+        "paymentID" -> paymentID.toJson
       )
       return
     }
+    if (pendingPayments.contains(paymentID)) {
+      logger.warn(
+        "msg" -> "Failed attempt to execute duplicate payment".toJson,
+        "paymentID" -> paymentID.toJson
+      )
+      return
+    }
+
+    pendingPayments(paymentID) = pendingPayment
 
     route(paymentInfo, paymentIDKnown = true) match {
       // Attempt to send payment through the Lightning Network if a route is found.
@@ -371,23 +382,30 @@ class NodeActor(val id: NodeID,
     )
   }
 
-  private def failPayment(paymentID: PaymentID, error: RoutingError): Unit = {
+  private def failPayment(paymentID: PaymentID, error: RoutingError)
+                         (implicit actions: NodeActions): Unit = {
     // TODO: Update local routing table
-    // TODO: Retry the payment up to some number of tries
+    val oldPendingPayment = pendingPayments.remove(paymentID)
+      .getOrElse(throw new AssertionError(s"Unknown payment ${paymentID} failed"))
+    val pendingPayment = oldPendingPayment.copy(tries =  oldPendingPayment.tries + 1)
+
     logger.info(
       "msg" -> "Payment failed".toJson,
       "paymentID" -> paymentID.toJson,
+      "tries" -> pendingPayment.tries.toJson,
       "error" -> error.toJson,
     )
+    actions.retryPayment(PaymentRetryDelay, pendingPayment)
   }
 }
 
 object NodeActor {
-  val HTLCUpdateProcessingTime = 10
-  val RoutingTime = 10
+  val RoutingTime: TimeDelta = 100
+  val HTLCUpdateProcessingTime: TimeDelta = 10
   val OpenChannelProcessingTime = 1
   val InsignificantTimeDelta = 1
   val CapacityMultiplier = 4
+  val PaymentRetryDelay = 1000
 
   case class Params(reserveToFundingRatio: Double,
                     dustLimit: Value,
