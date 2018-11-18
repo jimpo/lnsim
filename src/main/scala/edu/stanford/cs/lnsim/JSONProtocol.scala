@@ -44,6 +44,12 @@ object JSONProtocol {
     override def write(error: RoutingError): JsValue = error.toString.toJson
   }
 
+  implicit object MessageFormat extends JsonWriter[Message] {
+    override def write(message: Message): JsValue = message match {
+      case _ => message.toString.toJson
+    }
+  }
+
   implicit val StartFormat: RootJsonFormat[events.Start] =
     jsonFormat0(events.Start)
   implicit val NewBlockFormat: RootJsonFormat[events.NewBlock] =
@@ -58,12 +64,12 @@ object JSONProtocol {
       case e @ events.Start() => StartFormat.write(e)
       case e @ events.NewBlock(_) => NewBlockFormat.write(e)
       case e @ events.NewPayment( _) => NewPaymentFormat.write(e)
-      case events.ReceiveMessage(sender, recipient, message) =>
-        JsObject(
-          "sender" -> sender.toJson,
-          "recipient" -> recipient.toJson,
-          "message" -> message.getClass.toString.toJson
-        )
+      case events.ReceiveMessage(sender, recipient, message) => JsObject(
+        "name" -> "ReceiveMessage".toJson,
+        "sender" -> sender.toJson,
+        "recipient" -> recipient.toJson,
+        "message" -> message.toJson,
+      )
       case e @ events.QueryNewPayment() => QueryNewPaymentFormat.write(e)
     }
   }

@@ -69,7 +69,7 @@ class NodeActor(val id: NodeID,
 
     val channel = channels.getOrElse(
       hop.channel.id,
-      throw new HTLCUpdateFailure(s"Cannot receive HTLC on unknown channel ${hop.channel.id}")
+      throw new HTLCUpdateFailure(s"Node ${id} cannot receive HTLC on unknown channel ${hop.channel.id}")
     )
 
     // The simulation environment makes the assumption that HTLC updates are atomic for the sake of simplicity,
@@ -86,25 +86,36 @@ class NodeActor(val id: NodeID,
         // Intermediate hop in the circuit.
         val event = sendHTLC(nextHop) match {
           case Left(error) =>
+            channel.failRemoteHTLC(hop.id).left.foreach(error => throw new HTLCUpdateFailure(
+              s"Error failing newly added HTLC ${hop.id} on channel ${hop.channel.id}: $error"
+            ))
             actions.sendMessage(HTLCUpdateProcessingTime, sender, UpdateFailHTLC(backwardsRoute, error))
           case Right(nextHtlc) =>
-            logger.info(
+            logger.debug(
               "msg" -> "Forwarding HTLC".toJson,
               "htlcID" -> nextHtlc.id.toJson,
               "channelID" -> nextHop.channelID.toJson,
               "paymentID" -> nextHtlc.paymentID.toJson,
             )
             val newRoute = ForwardRoutingPacket(nextHtlc :: restHops, route.finalHop, backwardsRoute)
-            actions.sendMessage(HTLCUpdateProcessingTime, nextHop.recipient, UpdateAddHTLC(route))
+            actions.sendMessage(HTLCUpdateProcessingTime, nextHop.recipient, UpdateAddHTLC(newRoute))
         }
 
       case Nil =>
         // Final hop in the circuit.
-        val maybeError = acceptHTLC(hop, route.finalHop)
         val delay = HTLCUpdateProcessingTime
-        maybeError match {
-          case Some(error) => actions.sendMessage(delay, sender, UpdateFailHTLC(backwardsRoute, error))
-          case None => actions.sendMessage(delay, sender, UpdateFulfillHTLC(backwardsRoute))
+        acceptHTLC(hop, route.finalHop) match {
+          case Some(error) =>
+            channel.failRemoteHTLC(hop.id).left.foreach(error => throw new HTLCUpdateFailure(
+              s"Error failing newly added HTLC ${hop.id} on channel ${hop.channel.id}: $error"
+            ))
+            actions.sendMessage(delay, sender, UpdateFailHTLC(backwardsRoute, error))
+
+          case None =>
+            channel.fulfillRemoteHTLC(hop.id).left.foreach(error => throw new HTLCUpdateFailure(
+              s"Error fulfilling newly added HTLC ${hop.id} on channel ${hop.channel.id}: $error"
+            ))
+            actions.sendMessage(delay, sender, UpdateFulfillHTLC(backwardsRoute))
         }
     }
   }
@@ -119,7 +130,7 @@ class NodeActor(val id: NodeID,
       throw new HTLCUpdateFailure(s"Cannot receive HTLC on unknown channel ${channelID}")
     )
 
-    val htlc = channel.failRemoteHTLC(htlcID) match {
+    val htlc = channel.failLocalHTLC(htlcID) match {
       case Right(htlc) => htlc
       case Left(error) => throw new HTLCUpdateFailure(
         s"Error failing HTLC ${htlcID} on channel ${channelID}: $error"
@@ -127,22 +138,19 @@ class NodeActor(val id: NodeID,
     }
 
     nextHops match {
-      case (nextChannelInfo, nextHtlcID) :: restHops =>
+      case (nextChannelInfo, nextHtlcID) :: _ =>
         // Intermediate hop in the circuit.
         val nextChannelID = nextChannelInfo.id
         val maybeError = channels.get(nextChannelID) match {
-          case Some(nextChannel) => nextChannel.failLocalHTLC(nextHtlcID)
+          case Some(nextChannel) => nextChannel.failRemoteHTLC(nextHtlcID).left.toOption
           case None => Some(UnknownNextPeer)
         }
-        maybeError match {
-          case Some(error) => throw new HTLCUpdateFailure(
-            s"Error forwarding HTLC ${nextHtlcID} fail on channel ${nextChannelID}: $error"
-          )
-          case None =>
-        }
+        maybeError.foreach(error => throw new HTLCUpdateFailure(
+          s"Error forwarding HTLC ${nextHtlcID} fail on channel ${nextChannelID}: $error"
+        ))
 
         val delay = HTLCUpdateProcessingTime
-        val newRoute = BackwardRoutingPacket(restHops)
+        val newRoute = BackwardRoutingPacket(nextHops)
         actions.sendMessage(delay, nextChannelInfo.source, UpdateFailHTLC(newRoute, error))
       case Nil =>
         // Error made it back to the original sender.
@@ -160,33 +168,30 @@ class NodeActor(val id: NodeID,
       throw new HTLCUpdateFailure(s"Cannot receive HTLC on unknown channel ${channelID}")
     )
 
-    val htlc = channel.fulfillRemoteHTLC(htlcID) match {
+    val htlc = channel.fulfillLocalHTLC(htlcID) match {
       case Right(htlc) => htlc
       case Left(error) =>
         throw new HTLCUpdateFailure(s"Error fulfilling HTLC ${htlcID} on channel ${channelID}: ${error}")
     }
 
     nextHops match {
-      case (nextChannelInfo, nextHtlcID) :: restHops =>
+      case (nextChannelInfo, nextHtlcID) :: _ =>
         // Intermediate hop in the circuit.
         val maybeError = channels.get(nextChannelInfo.id) match {
-          case Some(nextChannel) => nextChannel.failLocalHTLC(nextHtlcID)
+          case Some(nextChannel) => nextChannel.failRemoteHTLC(nextHtlcID).left.toOption
           case None => Some(UnknownNextPeer)
         }
-        maybeError match {
-          case Some(error) => throw new HTLCUpdateFailure(
-            s"Error forwarding HTLC ${nextHtlcID} fulfill on channel ${nextChannelInfo.id}: $error"
-          )
-          case None =>
-        }
+        maybeError.foreach(error => throw new HTLCUpdateFailure(
+          s"Error forwarding HTLC ${nextHtlcID} fulfill on channel ${nextChannelInfo.id}: $error"
+        ))
 
-        val newRoute = BackwardRoutingPacket(restHops)
+        val newRoute = BackwardRoutingPacket(nextHops)
         actions.sendMessage(HTLCUpdateProcessingTime, nextChannelInfo.source, UpdateFulfillHTLC(newRoute))
 
       case Nil =>
         // Payment confirmation made it back to the original sender.
         logger.info(
-          "msg" -> "Payment completed".toJson,
+          "msg" -> "Payment completed off-chain".toJson,
           "paymentID" -> htlc.paymentID.toJson,
         )
     }
@@ -208,11 +213,6 @@ class NodeActor(val id: NodeID,
     // The initiating node broadcasts the funding transactions to the blockchain.
     blockchain.newFundingTransaction(channelID)
 
-    logger.info(
-      "msg" -> "Channel was accepted".toJson,
-      "thisNode" -> id.toJson,
-      "otherNode" -> otherNode.toJson
-    )
     channelOpen(
       channelID = openMsg.id,
       otherNode = otherNode,
@@ -334,10 +334,10 @@ class NodeActor(val id: NodeID,
 
   private def sendHTLC(htlc: HTLC): Either[RoutingError, HTLC] = {
     channels.get(htlc.channel.id) match {
-      case Some(nextChannel) =>
+      case Some(channel) =>
         // TODO: Check CLTV delta + fee rate against channel update params
-        val htlcDesc = htlc.desc.copy(id = nextChannel.ourNextHTLCID)
-        nextChannel.addLocalHTLC(htlcDesc)
+        val htlcDesc = htlc.desc.copy(id = channel.ourNextHTLCID)
+       channel.addLocalHTLC(htlcDesc)
           .map(_ match {
             case ChannelView.Error.IncorrectHTLCID =>
               throw new AssertionError("HTLC should have been correctly assigned in call to addLocalHTLC")

@@ -10,8 +10,8 @@ class ChannelView(val otherNode: NodeID,
   import ChannelView._
 
   private var status: Status.Value = Status.Opening
-  private val ourState: State = new State(ourInitialBalance)
-  private val theirState: State = new State(theirInitialBalance)
+  private val ourSide: Side = new Side(ourInitialBalance)
+  private val theirSide: Side = new Side(theirInitialBalance)
 
   def transition(newStatus: Status.Value): Unit = {
     (status, newStatus) match {
@@ -24,41 +24,56 @@ class ChannelView(val otherNode: NodeID,
     }
   }
 
-  def addLocalHTLC(htlc: HTLC.Desc): Option[Error.Value] =
-    ourState.addHTLC(htlc, theirParams)
-  def addRemoteHTLC(htlc: HTLC.Desc): Option[Error.Value] =
-    theirState.addHTLC(htlc, ourParams)
+  def addLocalHTLC(htlc: HTLC.Desc): Option[Error.Value] = checkStatus().orElse(
+    ourSide.addHTLC(htlc, theirParams)
+  )
+  def addRemoteHTLC(htlc: HTLC.Desc): Option[Error.Value] = checkStatus().orElse(
+    theirSide.addHTLC(htlc, ourParams)
+  )
 
-  def failLocalHTLC(id: HTLCID): Either[Error.Value, HTLC.Desc] = ourState.removeHTLC(id) match {
-    case Some(htlc) =>
-      ourState.balance += htlc.amount
-      Right(htlc)
-    case None => Left(Error.IncorrectHTLCID)
-  }
-  def failRemoteHTLC(id: HTLCID): Either[Error.Value, HTLC.Desc] = theirState.removeHTLC(id) match {
-    case Some(htlc) =>
-      theirState.balance += htlc.amount
-      Right(htlc)
-    case None => Left(Error.IncorrectHTLCID)
-  }
+  def failLocalHTLC(id: HTLCID): Either[Error.Value, HTLC.Desc] = checkStatus().toLeft(()).flatMap(_ =>
+    ourSide.removeHTLC(id) match {
+      case Some(htlc) =>
+        ourSide.balance += htlc.amount
+        Right(htlc)
+      case None => Left(Error.IncorrectHTLCID)
+    }
+  )
+  def failRemoteHTLC(id: HTLCID): Either[Error.Value, HTLC.Desc] = checkStatus().toLeft(()).flatMap(_ =>
+    theirSide.removeHTLC(id) match {
+      case Some(htlc) =>
+        theirSide.balance += htlc.amount
+        Right(htlc)
+      case None => Left(Error.IncorrectHTLCID)
+    }
+  )
 
-  def fulfillLocalHTLC(id: HTLCID): Either[Error.Value, HTLC.Desc] = ourState.removeHTLC(id) match {
-    case Some(htlc) =>
-      theirState.balance += htlc.amount
-      Right(htlc)
-    case None => Left(Error.IncorrectHTLCID)
-  }
-  def fulfillRemoteHTLC(id: HTLCID): Either[Error.Value, HTLC.Desc] = theirState.removeHTLC(id) match {
-    case Some(htlc) =>
-      ourState.balance += htlc.amount
-      Right(htlc)
-    case None => Left(Error.IncorrectHTLCID)
-  }
+  def fulfillLocalHTLC(id: HTLCID): Either[Error.Value, HTLC.Desc] = checkStatus().toLeft(()).flatMap(_ =>
+    ourSide.removeHTLC(id) match {
+      case Some(htlc) =>
+        theirSide.balance += htlc.amount
+        Right(htlc)
+      case None => Left(Error.IncorrectHTLCID)
+    }
+  )
+  def fulfillRemoteHTLC(id: HTLCID): Either[Error.Value, HTLC.Desc] = checkStatus().toLeft(()).flatMap(_ =>
+    theirSide.removeHTLC(id) match {
+      case Some(htlc) =>
+        ourSide.balance += htlc.amount
+        Right(htlc)
+      case None => Left(Error.IncorrectHTLCID)
+    }
+  )
 
-  def ourNextHTLCID: HTLCID = ourState.nextHTLCID
+  def ourNextHTLCID: HTLCID = ourSide.nextHTLCID
 
-  def ourAvailableBalance: Value = ourState.availableBalance(theirParams)
-  def theirAvailableBalance: Value = theirState.availableBalance(ourParams)
+  def ourAvailableBalance: Value = ourSide.availableBalance(theirParams)
+  def theirAvailableBalance: Value = theirSide.availableBalance(ourParams)
+
+  private def checkStatus(): Option[ChannelView.Error.Value] = status match {
+    case Status.Active => None
+    case _ => Some(Error.Inactive)
+  }
 }
 
 object ChannelView {
@@ -67,7 +82,7 @@ object ChannelView {
   private case class UpdateFail(id: Int) extends Update
   private case class UpdateFulfill(id: Int) extends Update
 
-  class State(initialBalance: Value) {
+  class Side(initialBalance: Value) {
     var balance: Value = initialBalance
     private var _nextHTLCID: HTLCID = 0
     private val htlcs: mutable.Map[HTLCID, HTLC.Desc] = mutable.Map.empty
@@ -109,7 +124,8 @@ object ChannelView {
 
   object Error extends Enumeration {
     type Error = Value
-    val IncorrectHTLCID, InsufficientBalance, BelowHTLCMinimum, ExceedsMaxHTLCInFlight, ExceedsMaxAcceptedHTLCs = Value
+    val IncorrectHTLCID, InsufficientBalance, BelowHTLCMinimum, ExceedsMaxHTLCInFlight,
+    ExceedsMaxAcceptedHTLCs, Inactive = Value
   }
 
   object Status extends Enumeration {
