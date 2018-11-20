@@ -1,12 +1,11 @@
 package edu.stanford.cs.lnsim
 
 import edu.stanford.cs.lnsim.des.{TimeDelta, Timestamp}
-import edu.stanford.cs.lnsim.graph.{Channel, ChannelUpdate}
+import edu.stanford.cs.lnsim.graph.{Channel, ChannelUpdate, Node}
 import edu.stanford.cs.lnsim.log.StructuredLogging
-import edu.stanford.cs.lnsim.routing.{NetworkGraphView, Router}
+import edu.stanford.cs.lnsim.routing.{NetworkGraphView, RouteConstraints, Router}
 
 import scala.collection.mutable
-
 import spray.json._
 import spray.json.DefaultJsonProtocol._
 import JSONProtocol._
@@ -45,13 +44,13 @@ class NodeActor(val id: NodeID,
     blockchain.subscribeChannelConfirmed(channelID, requiredConfirmations)
   }
 
-  def handleChannelOpenedOnChain(channelID: ChannelID, timestamp: Timestamp)
+  def handleChannelOpenedOnChain(channelID: ChannelID)
                                 (implicit actions: NodeActions): Unit = {
     channels.get(channelID) match {
       case Some(channelView) =>
         channelView.transition(ChannelView.Status.Active)
         val update = channelUpdate(
-          timestamp,
+          actions.timestamp,
           disabled = false,
           capacity = channelView.ourInitialBalance + channelView.theirInitialBalance,
           theirChannelParams = channelView.theirParams
@@ -90,7 +89,9 @@ class NodeActor(val id: NodeID,
             channel.failRemoteHTLC(hop.id).left.foreach(error => throw new HTLCUpdateFailure(
               s"Error failing newly added HTLC ${hop.id} on channel ${hop.channel.id}: $error"
             ))
-            actions.sendMessage(HTLCUpdateProcessingTime, sender, UpdateFailHTLC(backwardsRoute, error))
+            val failMsg = UpdateFailHTLC(backwardsRoute, error, Some(nextHop.channel))
+            actions.sendMessage(HTLCUpdateProcessingTime, sender, failMsg)
+
           case Right(nextHtlc) =>
             logger.debug(
               "msg" -> "Forwarding HTLC".toJson,
@@ -110,7 +111,8 @@ class NodeActor(val id: NodeID,
             channel.failRemoteHTLC(hop.id).left.foreach(error => throw new HTLCUpdateFailure(
               s"Error failing newly added HTLC ${hop.id} on channel ${hop.channel.id}: $error"
             ))
-            actions.sendMessage(delay, sender, UpdateFailHTLC(backwardsRoute, error))
+            val failMsg = UpdateFailHTLC(backwardsRoute, error, None)
+            actions.sendMessage(delay, sender, failMsg)
 
           case None =>
             channel.fulfillRemoteHTLC(hop.id).left.foreach(error => throw new HTLCUpdateFailure(
@@ -121,9 +123,9 @@ class NodeActor(val id: NodeID,
     }
   }
 
-  def handleUpdateFailHTLC(sender: NodeID, message: UpdateFailHTLC)
+  def handleUpdateFailHTLC(sender: NodeID, failMsg: UpdateFailHTLC)
                           (implicit actions: NodeActions): Unit = {
-    val UpdateFailHTLC(route, error) = message
+    val UpdateFailHTLC(route, _, _) = failMsg
     val ((channelInfo, htlcID) :: nextHops) = route.hops
     val channelID = channelInfo.id
 
@@ -152,16 +154,16 @@ class NodeActor(val id: NodeID,
 
         val delay = HTLCUpdateProcessingTime
         val newRoute = BackwardRoutingPacket(nextHops)
-        actions.sendMessage(delay, nextChannelInfo.source, UpdateFailHTLC(newRoute, error))
+        actions.sendMessage(delay, nextChannelInfo.source, failMsg.copy(route = newRoute))
       case Nil =>
         // Error made it back to the original sender.
-        failPayment(htlc.paymentID, error)
+        failPayment(htlc.paymentID, failMsg.error, failMsg.channel)
     }
   }
 
-  def handleUpdateFulfillHTLC(sender: NodeID, message: UpdateFulfillHTLC)
+  def handleUpdateFulfillHTLC(sender: NodeID, fulfillMsg: UpdateFulfillHTLC)
                              (implicit actions: NodeActions): Unit = {
-    val UpdateFulfillHTLC(route) = message
+    val UpdateFulfillHTLC(route) = fulfillMsg
     val ((channelInfo, htlcID) :: nextHops) = route.hops
     val channelID = channelInfo.id
 
@@ -191,10 +193,7 @@ class NodeActor(val id: NodeID,
 
       case Nil =>
         // Payment confirmation made it back to the original sender.
-        logger.info(
-          "msg" -> "Payment completed".toJson,
-          "paymentID" -> htlc.paymentID.toJson,
-        )
+        completePayment(htlc.paymentID, actions.timestamp)
     }
   }
 
@@ -258,8 +257,10 @@ class NodeActor(val id: NodeID,
     None
   }
 
-  def route(paymentInfo: PaymentInfo, paymentIDKnown: Boolean): Option[ForwardRoutingPacket] = {
-    val pathIterator = router.findPath(paymentInfo, graphView)
+  def route(paymentInfo: PaymentInfo,
+            constraints: RouteConstraints,
+            paymentIDKnown: Boolean): Option[ForwardRoutingPacket] = {
+    val pathIterator = router.findPath(paymentInfo, graphView, constraints)
     if (pathIterator.isEmpty) {
       return None
     }
@@ -285,9 +286,16 @@ class NodeActor(val id: NodeID,
     Some(ForwardRoutingPacket(hops, finalHop, BackwardRoutingPacket(Nil)))
   }
 
-  def sendPayment(paymentInfo: PaymentInfo, timestamp: Timestamp)
-                 (implicit actions: NodeActions): Unit =
-    executePayment(PendingPayment(paymentInfo, timestamp, tries = 0))
+  def sendPayment(paymentInfo: PaymentInfo)
+                 (implicit actions: NodeActions): Unit = {
+    val pendingPayment = PendingPayment(
+      paymentInfo,
+      actions.timestamp,
+      tries = 1,
+      constraints = new RouteConstraints(),
+    )
+    executePayment(pendingPayment)
+  }
 
   def executePayment(pendingPayment: PendingPayment)
                     (implicit actions: NodeActions): Unit = {
@@ -310,7 +318,7 @@ class NodeActor(val id: NodeID,
 
     pendingPayments(paymentID) = pendingPayment
 
-    route(paymentInfo, paymentIDKnown = true) match {
+    route(paymentInfo, pendingPayment.constraints, paymentIDKnown = true) match {
       // Attempt to send payment through the Lightning Network if a route is found.
       case Some(routingPacket) =>
         val (firstHop :: restHops) = routingPacket.hops
@@ -321,7 +329,7 @@ class NodeActor(val id: NodeID,
 
         sendHTLC(firstHop) match {
           case Left(error) =>
-            failPayment(firstHop.paymentID, error)
+            failPayment(firstHop.paymentID, error, Some(firstHop.channel))
           case Right(firstHTLC) =>
             val newRoute = routingPacket.copy(hops = firstHTLC :: restHops)
             actions.sendMessage(RoutingTime, firstHop.recipient, UpdateAddHTLC(newRoute))
@@ -357,7 +365,7 @@ class NodeActor(val id: NodeID,
             case ChannelView.Error.InsufficientBalance |
                  ChannelView.Error.ExceedsMaxHTLCInFlight |
                  ChannelView.Error.ExceedsMaxAcceptedHTLCs =>
-              AmountBelowMinimum(htlc.amount)
+              TemporaryChannelFailure
           })
           .toLeft(HTLC(htlc.channel, htlcDesc))
       case None => Left(UnknownNextPeer)
@@ -382,20 +390,78 @@ class NodeActor(val id: NodeID,
     )
   }
 
-  private def failPayment(paymentID: PaymentID, error: RoutingError)
-                         (implicit actions: NodeActions): Unit = {
-    // TODO: Update local routing table
-    val oldPendingPayment = pendingPayments.remove(paymentID)
+  private def completePayment(paymentID: PaymentID, timestamp: Timestamp): Unit = {
+    val pendingPayment = pendingPayments.remove(paymentID)
       .getOrElse(throw new AssertionError(s"Unknown payment ${paymentID} failed"))
-    val pendingPayment = oldPendingPayment.copy(tries =  oldPendingPayment.tries + 1)
 
     logger.info(
+      "msg" -> "Payment completed".toJson,
+      "paymentID" -> paymentID.toJson,
+      "tries" -> pendingPayment.tries.toJson,
+      "totalTime" -> (timestamp - pendingPayment.timestamp).toJson,
+    )
+  }
+
+  private def failPayment(paymentID: PaymentID, error: RoutingError, channel: Option[Channel])
+                         (implicit actions: NodeActions): Unit = {
+    val pendingPayment = pendingPayments.remove(paymentID)
+      .getOrElse(throw new AssertionError(s"Unknown payment ${paymentID} failed"))
+
+    logger.debug(
       "msg" -> "Payment failed".toJson,
       "paymentID" -> paymentID.toJson,
       "tries" -> pendingPayment.tries.toJson,
-      "error" -> error.toJson,
+      "channelID" -> channel.map(_.id.toJson).getOrElse(JsNull),
+      "error" -> error.toString.toJson,
     )
-    actions.retryPayment(PaymentRetryDelay, pendingPayment)
+
+    var permanentIgnoreNode = Option.empty[NodeID]
+    var permanentIgnoreChannel = Option.empty[Channel]
+    var temporaryIgnoreNode = Option.empty[NodeID]
+    var temporaryIgnoreChannel = Option.empty[Channel]
+
+    channel match {
+      case Some(channel) => error match {
+        case TemporaryChannelFailure => temporaryIgnoreChannel = Some(channel)
+        case _: NodeError => error match {
+          case _: PermanentError => permanentIgnoreNode = Some(channel.source)
+          case _ => temporaryIgnoreNode = Some(channel.source)
+        }
+        case _: PermanentError => permanentIgnoreChannel = Some(channel)
+        case _: UpdateError => // TODO: Validate error legitimacy
+        case _: BadOnionError => ???
+        case FinalExpiryTooSoon |
+             FinalIncorrectExpiry(_) |
+             FinalIncorrectHTLCAmount(_) |
+             NotDecodable =>
+          throw new MisbehavingNodeException(s"$error error received with a non-empty channel")
+      }
+      case None => error match {
+        case FinalExpiryTooSoon => // TODO: Validate against timestamp
+        // TODO: Handle corrupted routing errors.
+        case NotDecodable => ???
+        case _ => logger.warn(
+          "msg" -> "Payment failed permanently at receiving node".toJson,
+          "paymentID" -> paymentID.toJson,
+          "error" -> error.toString.toJson,
+        )
+      }
+    }
+
+    // Update global constraints
+    permanentIgnoreNode.foreach(graphView.banNode(_))
+    permanentIgnoreChannel.foreach(graphView.banChannel(_))
+
+    // Update temporary constraints
+    var newConstraints = pendingPayment.constraints
+    newConstraints = temporaryIgnoreNode.foldLeft(newConstraints) { _.banNode(_) }
+    newConstraints = temporaryIgnoreChannel.foldLeft(newConstraints) { _.banChannel(_) }
+
+    val newPendingPayment = pendingPayment.copy(
+      tries = pendingPayment.tries + 1,
+      constraints = newConstraints,
+    )
+    actions.retryPayment(PaymentRetryDelay, newPendingPayment)
   }
 }
 

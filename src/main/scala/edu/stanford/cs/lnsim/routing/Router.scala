@@ -7,5 +7,7 @@ trait Router {
   /**
     * Returns a list of channels in order from sender to recipient.
     */
-  def findPath(paymentInfo: PaymentInfo, graph: NetworkGraphView): List[Channel]
+  def findPath(paymentInfo: PaymentInfo,
+               graph: NetworkGraphView,
+               constraints: RouteConstraints): List[Channel]
 }

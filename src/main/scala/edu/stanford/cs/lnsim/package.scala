@@ -3,7 +3,8 @@ package edu.stanford.cs
 import java.util.UUID
 
 import edu.stanford.cs.lnsim.des.Timestamp
-import edu.stanford.cs.lnsim.graph.Channel
+import edu.stanford.cs.lnsim.graph.{Channel, Node}
+import edu.stanford.cs.lnsim.routing.RouteConstraints
 
 package object lnsim {
   type NodeID = UUID
@@ -94,8 +95,13 @@ package object lnsim {
     * to retry the payment in case it fails.
     *
     * @param tries A count of the number of attempts to deliver this payment that already failed.
+    * @param ignoreNodes A set of nodes that should be avoided in routing attempts
+    * @param ignoreChannels A set of channels that should be avoided in routing attempts
     */
-  case class PendingPayment(info: PaymentInfo, timestamp: Timestamp, tries: Int)
+  case class PendingPayment(info: PaymentInfo,
+                            timestamp: Timestamp,
+                            tries: Int,
+                            constraints: RouteConstraints)
 
   /**
     * This exception is thrown when a node implementation returns some invalid data.

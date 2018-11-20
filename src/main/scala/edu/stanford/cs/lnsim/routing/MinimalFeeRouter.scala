@@ -5,11 +5,18 @@ import edu.stanford.cs.lnsim.graph.Channel
 
 import scala.collection.mutable
 
+/**
+  * The MinimalFeeRouter uses Dijkstra's algorithm to find the route fulfilling the payment
+  * that minimizes fees while respecting the route constraints.
+  */
 class MinimalFeeRouter(maxFee: Value) extends Router {
 
-  override def findPath(paymentInfo: PaymentInfo, graph: NetworkGraphView): List[Channel] = {
+  override def findPath(paymentInfo: PaymentInfo,
+                        graph: NetworkGraphView,
+                        localConstraints: RouteConstraints): List[Channel] = {
     val source = paymentInfo.sender.id
     val target = paymentInfo.recipientID
+    val constraints = graph.constraints + localConstraints
 
     val distances = mutable.HashMap.empty[NodeID, (Value, Channel, Boolean)]
     val queue = mutable.PriorityQueue.empty[(Value, NodeID)]
@@ -28,19 +35,30 @@ class MinimalFeeRouter(maxFee: Value) extends Router {
 
         val channels = graph.node(nodeID).map(_.channels.valuesIterator).getOrElse(Iterator.empty)
         for (channel <- channels) {
-          val edgeWeight = channel.lastUpdate.feeBase +
-            (paymentInfo.amount * channel.lastUpdate.feeProportionalMillionths / 1000000.0).toLong
-          val newEstimate = dist + edgeWeight
-          val betterPath = distances.get(channel.target).map(newEstimate < _._1).getOrElse(true)
-          if (betterPath) {
-            distances(channel.target) = (newEstimate, channel, false)
-            queue.enqueue((newEstimate, channel.target))
+          if (checkChannel(channel, paymentInfo.amount, constraints)) {
+            val edgeWeight = channel.lastUpdate.feeBase +
+              (paymentInfo.amount * channel.lastUpdate.feeProportionalMillionths / 1000000.0).toLong
+            val newEstimate = dist + edgeWeight
+            val betterPath = distances.get(channel.target).map(newEstimate < _._1).getOrElse(true)
+            if (betterPath) {
+              distances(channel.target) = (newEstimate, channel, false)
+              queue.enqueue((newEstimate, channel.target))
+            }
           }
         }
       }
     }
     List.empty
   }
+
+  private def checkChannel(channel: Channel,
+                           amount: Value,
+                           constraints: RouteConstraints): Boolean = (
+    !channel.lastUpdate.disabled &&
+      amount >= channel.lastUpdate.htlcMinimum &&
+      amount <= channel.lastUpdate.htlcMaximum &&
+      constraints.allowChannel(channel)
+  )
 
   private def recoverPath(source: NodeID, target: NodeID,
                           distances: mutable.Map[NodeID, (Value, Channel, Boolean)]): List[Channel] = {

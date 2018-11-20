@@ -1,10 +1,14 @@
 package edu.stanford.cs.lnsim
 
 import edu.stanford.cs.lnsim.des.TimeDelta
+import edu.stanford.cs.lnsim.log.StructuredLogging
 
 import scala.collection.mutable
 
-class Blockchain(val blockInterval: TimeDelta) {
+import spray.json._
+import spray.json.DefaultJsonProtocol._
+
+class Blockchain(val blockInterval: TimeDelta) extends StructuredLogging {
   import Blockchain._
 
   private var _blockNumber: BlockNumber = 0
@@ -14,6 +18,11 @@ class Blockchain(val blockInterval: TimeDelta) {
   def blockArrived(): List[Notification] = {
     val events = onChainEvents.remove(blockNumber).getOrElse(Nil)
     incBlockNumber()
+
+    logger.info(
+      "msg" -> "New block arrived".toJson,
+      "number" -> blockNumber.toJson,
+    )
     events
   }
 

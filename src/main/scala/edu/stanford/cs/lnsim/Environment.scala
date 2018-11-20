@@ -37,19 +37,19 @@ class Environment(private val nodes: Map[NodeID, NodeActor],
         for (notification <- blockchain.blockArrived()) notification match {
           case Blockchain.ChannelOpened(channelID, nodeID) =>
             val node = nodes(nodeID)
-            implicit val actions = new EnvNodeActions(node, scheduleEvent)
-            node.handleChannelOpenedOnChain(channelID, timestamp)
+            implicit val actions = new EnvNodeActions(timestamp, node, scheduleEvent)
+            node.handleChannelOpenedOnChain(channelID)
           case Blockchain.ChannelClosed(channelID) =>
         }
         scheduleEvent(blockchain.nextBlockTime(), events.NewBlock(number + 1))
 
       case events.NewPayment(paymentInfo) =>
         val sender = paymentInfo.sender
-        implicit val actions = new EnvNodeActions(sender, scheduleEvent)
-        sender.sendPayment(paymentInfo, timestamp)
+        implicit val actions = new EnvNodeActions(timestamp, sender, scheduleEvent)
+        sender.sendPayment(paymentInfo)
 
       case events.ReceiveMessage(sender, recipient, message) =>
-        implicit val actions = new EnvNodeActions(recipient, scheduleEvent)
+        implicit val actions = new EnvNodeActions(timestamp, recipient, scheduleEvent)
 
         message match {
           case message @ OpenChannel(_, _, _, _) => recipient.handleOpenChannel(sender.id, message)
@@ -57,7 +57,7 @@ class Environment(private val nodes: Map[NodeID, NodeActor],
           case message @ FundingCreated(_, _) => recipient.handleFundingCreated(sender.id, message)
           case message @ UpdateAddHTLC(_) => recipient.handleUpdateAddHTLC(sender.id, message)
           case message @ UpdateFulfillHTLC(_) => recipient.handleUpdateFulfillHTLC(sender.id, message)
-          case message @ UpdateFailHTLC( _, _) => recipient.handleUpdateFailHTLC(sender.id, message)
+          case message @ UpdateFailHTLC( _, _, _) => recipient.handleUpdateFailHTLC(sender.id, message)
         }
 
       case events.QueryNewPayment() =>
@@ -92,14 +92,15 @@ class Environment(private val nodes: Map[NodeID, NodeActor],
         }
 
       case events.RetryPayment(node, payment) =>
-        implicit val actions = new EnvNodeActions(node, scheduleEvent)
+        implicit val actions = new EnvNodeActions(timestamp, node, scheduleEvent)
         node.executePayment(payment)
     }
   }
 
   private def nodeReceiveTime(node: NodeActor): TimeDelta = Util.drawExponential(node.meanNetworkLatency)
 
-  private class EnvNodeActions(private val node: NodeActor,
+  private class EnvNodeActions(val timestamp: Timestamp,
+                               private val node: NodeActor,
                                private val scheduleEvent: (TimeDelta, Event) => Unit) extends NodeActions {
     override def sendMessage(delay: TimeDelta, recipientID: NodeID, message: Message): Unit = {
       val recipient = nodes(recipientID)
