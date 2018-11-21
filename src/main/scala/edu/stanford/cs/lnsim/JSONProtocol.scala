@@ -2,7 +2,7 @@ package edu.stanford.cs.lnsim
 
 import java.util.UUID
 
-import edu.stanford.cs.lnsim.graph.{Channel, ChannelUpdate}
+import edu.stanford.cs.lnsim.graph.Channel
 import spray.json._
 import spray.json.DefaultJsonProtocol._
 
@@ -10,21 +10,13 @@ import spray.json.DefaultJsonProtocol._
   * Defines spray JSON writers for all lnsim objects.
   */
 object JSONProtocol {
-  val ChannelUpdateFormat : RootJsonFormat[ChannelUpdate] = jsonFormat7(ChannelUpdate)
-
   implicit object UUIDFormat extends JsonFormat[UUID] {
     override def write(uuid: UUID): JsValue = uuid.toString.toJson
 
-    override def read(json: JsValue): PaymentID = ???
+    override def read(json: JsValue): UUID = ???
   }
 
-  implicit object ChannelFormat extends JsonWriter[Channel] {
-    override def write(c: Channel) = JsObject(
-      "id" -> c.id.toJson,
-      "source" -> c.source.toJson,
-      "target" -> c.target.toJson,
-    )
-  }
+  val ChannelUpdateFormat : RootJsonFormat[Channel] = jsonFormat10(Channel)
 
   implicit object NodeFormat extends JsonWriter[NodeActor] {
     override def write(n: NodeActor) = JsObject("id" -> JsString(n.id.toString))

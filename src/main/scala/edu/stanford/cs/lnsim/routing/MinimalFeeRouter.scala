@@ -36,9 +36,7 @@ class MinimalFeeRouter(maxFee: Value) extends Router {
         val channels = graph.node(nodeID).map(_.channels.valuesIterator).getOrElse(Iterator.empty)
         for (channel <- channels) {
           if (checkChannel(channel, paymentInfo.amount, constraints)) {
-            val edgeWeight = channel.lastUpdate.feeBase +
-              (paymentInfo.amount * channel.lastUpdate.feeProportionalMillionths / 1000000.0).toLong
-            val newEstimate = dist + edgeWeight
+            val newEstimate = dist + channel.fee(paymentInfo.amount)
             val betterPath = distances.get(channel.target).map(newEstimate < _._1).getOrElse(true)
             if (betterPath) {
               distances(channel.target) = (newEstimate, channel, false)
@@ -54,9 +52,9 @@ class MinimalFeeRouter(maxFee: Value) extends Router {
   private def checkChannel(channel: Channel,
                            amount: Value,
                            constraints: RouteConstraints): Boolean = (
-    !channel.lastUpdate.disabled &&
-      amount >= channel.lastUpdate.htlcMinimum &&
-      amount <= channel.lastUpdate.htlcMaximum &&
+    !channel.disabled &&
+      amount >= channel.htlcMinimum &&
+      amount <= channel.htlcMaximum &&
       constraints.allowChannel(channel)
   )
 

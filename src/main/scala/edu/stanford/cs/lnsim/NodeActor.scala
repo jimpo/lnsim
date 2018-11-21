@@ -1,7 +1,7 @@
 package edu.stanford.cs.lnsim
 
 import edu.stanford.cs.lnsim.des.{TimeDelta, Timestamp}
-import edu.stanford.cs.lnsim.graph.{Channel, ChannelUpdate, Node}
+import edu.stanford.cs.lnsim.graph.Channel
 import edu.stanford.cs.lnsim.log.StructuredLogging
 import edu.stanford.cs.lnsim.routing.{NetworkGraphView, RouteConstraints, Router}
 
@@ -49,13 +49,15 @@ class NodeActor(val id: NodeID,
     channels.get(channelID) match {
       case Some(channelView) =>
         channelView.transition(ChannelView.Status.Active)
-        val update = channelUpdate(
+        val channel = channelUpdate(
+          channelID = channelID,
+          otherNodeID = channelView.otherNode,
           actions.timestamp,
           disabled = false,
           capacity = channelView.ourInitialBalance + channelView.theirInitialBalance,
           theirChannelParams = channelView.theirParams
         )
-        graphView.updateChannel(Channel(channelID, id, channelView.otherNode, update))
+        graphView.updateChannel(channel)
 
       case None =>
         throw new AssertionError(s"Cannot handle ChannelOpened for unknown channel $channelID")
@@ -277,10 +279,9 @@ class NodeActor(val id: NodeID,
 
     val path = pathIterator.zipWithIndex
     for ((edge, i) <- path.reverseIterator.toIndexedSeq) {
-      val channelUpdate = edge.lastUpdate
       hops = HTLC(edge, HTLC.Desc(-1, amount, expiry, paymentInfo.paymentID)) :: hops
-      amount += channelUpdate.feeBase + amount * channelUpdate.feeProportionalMillionths / 1000000
-      expiry += channelUpdate.expiryDelta
+      amount += edge.fee(amount)
+      expiry += edge.expiryDelta
     }
 
     Some(ForwardRoutingPacket(hops, finalHop, BackwardRoutingPacket(Nil)))
@@ -375,13 +376,18 @@ class NodeActor(val id: NodeID,
   private def newChannelCapacity(_node: NodeID, initialPaymentAmount: Value): Value =
     initialPaymentAmount * CapacityMultiplier
 
-  private def channelUpdate(timestamp: Timestamp,
+  private def channelUpdate(channelID: ChannelID,
+                            otherNodeID: NodeID,
+                            timestamp: Timestamp,
                             disabled: Boolean,
                             capacity: Value,
-                            theirChannelParams: ChannelParams): ChannelUpdate = {
-    ChannelUpdate(
-      timestamp,
-      disabled,
+                            theirChannelParams: ChannelParams): Channel = {
+    Channel(
+      id = channelID,
+      source = id,
+      target = otherNodeID,
+      lastUpdate = timestamp,
+      disabled = disabled,
       expiryDelta = params.expiryDelta,
       htlcMinimum = theirChannelParams.htlcMinimum,
       htlcMaximum = math.min(theirChannelParams.maxHTLCInFlight, capacity),
