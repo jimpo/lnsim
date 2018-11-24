@@ -8,10 +8,12 @@ import JSONProtocol._
 
 import scala.util.Random
 
-class Environment(private val nodes: Map[NodeID, NodeActor],
+class Environment(private val nodeSeq: Seq[NodeActor],
                   private val blockchain: Blockchain) extends des.Environment with StructuredLogging {
 
   override type Event = events.Base
+
+  private val nodes: Map[NodeID, NodeActor] = nodeSeq.map(node => node.id -> node).toMap
 
   override def initialEvent(): Event = events.Start()
 
@@ -28,12 +30,17 @@ class Environment(private val nodes: Map[NodeID, NodeActor],
 
     event match {
       case events.Start() =>
-        scheduleEvent(blockchain.nextBlockTime(), events.NewBlock(0))
+        scheduleEvent(blockchain.nextBlockTime(), events.NewBlock(1))
         for (node <- nodes.valuesIterator) {
           scheduleEvent(0, events.QueryNewPayment())
         }
 
       case events.NewBlock(number) =>
+        if (number != blockchain.blockNumber + 1) {
+          throw new AssertionError(
+            s"$event fired out of order, expected block ${blockchain.blockNumber + 1}"
+          )
+        }
         for (notification <- blockchain.blockArrived()) notification match {
           case Blockchain.ChannelOpened(channelID, nodeID) =>
             val node = nodes(nodeID)

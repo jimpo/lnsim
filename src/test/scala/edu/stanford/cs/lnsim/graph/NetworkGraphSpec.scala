@@ -27,7 +27,7 @@ class NetworkGraphSpec extends FlatSpec with Matchers {
       htlcMinimum = EclairDefaults.HTLCMinimum,
       htlcMaximum = EclairDefaults.MaxHTLCInFlight,
       feeBase = EclairDefaults.FeeBase,
-      feeProportionalMillionths = EclairDefaults.FeeProportionalMillionths,
+      feeProportionalMillionths = EclairDefaults.FeeProportionalMillionths
     )
     val channel1BtoA = channel1AtoB.copy(
       source = channel1AtoB.target,
@@ -111,10 +111,10 @@ class NetworkGraphSpec extends FlatSpec with Matchers {
       htlcMinimum = EclairDefaults.HTLCMinimum,
       htlcMaximum = EclairDefaults.MaxHTLCInFlight,
       feeBase = EclairDefaults.FeeBase,
-      feeProportionalMillionths = EclairDefaults.FeeProportionalMillionths,
+      feeProportionalMillionths = EclairDefaults.FeeProportionalMillionths
     )
     val newChannelUpdate = oldChannelUpdate.copy(
-      lastUpdate = oldChannelUpdate.lastUpdate + 1,
+      lastUpdate = oldChannelUpdate.lastUpdate + 1
     )
 
     val graph = new NetworkGraph()

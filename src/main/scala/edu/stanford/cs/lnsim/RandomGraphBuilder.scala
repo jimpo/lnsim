@@ -12,7 +12,7 @@ class RandomGraphBuilder(private val numNodes: Int,
                          private val blockchain: Blockchain) {
   import RandomGraphBuilder._
 
-  def build(): Map[NodeID, NodeActor] = {
+  def build(): Seq[NodeActor] = {
     val graph = new NetworkGraph()
     val router = new MinimalFeeRouter(MaximumRoutingFee)
     val params = NodeActor.Params(
@@ -28,13 +28,12 @@ class RandomGraphBuilder(private val numNodes: Int,
       EclairDefaults.FeeProportionalMillionths
     )
 
-    val nodes = for (_ <- 0 until numNodes) yield {
+    for (_ <- 0 until numNodes) yield {
       val nodeID = Util.randomUUID()
       val graphView = new NetworkGraphView(graph)
       val blockchainView = new BlockchainView(nodeID, blockchain)
       new NodeActor(nodeID, params, router, graphView, blockchainView)
     }
-    Map(nodes.map(node => node.id -> node):_*)
   }
 
   /*
