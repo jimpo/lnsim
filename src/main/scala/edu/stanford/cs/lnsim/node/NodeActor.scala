@@ -47,14 +47,14 @@ class NodeActor(val id: NodeID,
   }
 
   def handleChannelOpenedOnChain(channelID: ChannelID)
-                                (implicit actions: NodeActions): Unit = {
+                                (implicit ctx: NodeContext): Unit = {
     channels.get(channelID) match {
       case Some(channelView) =>
         channelView.transition(ChannelView.Status.Active)
         val channel = channelUpdate(
           channelID = channelID,
           otherNodeID = channelView.otherNode,
-          actions.timestamp,
+          ctx.timestamp,
           disabled = false,
           capacity = channelView.ourInitialBalance + channelView.theirInitialBalance,
           theirChannelParams = channelView.theirParams
@@ -67,7 +67,7 @@ class NodeActor(val id: NodeID,
   }
 
   def handleUpdateAddHTLC(sender: NodeID, message: UpdateAddHTLC)
-                         (implicit actions: NodeActions): Unit = {
+                         (implicit ctx: NodeContext): Unit = {
     val UpdateAddHTLC(route) = message
     val (hop :: nextHops) = route.hops
 
@@ -78,6 +78,7 @@ class NodeActor(val id: NodeID,
 
     // The simulation environment makes the assumption that HTLC updates are atomic for the sake of simplicity,
     // so if an HTLC was added without error on the other end of the channel, there should be no error here either.
+    ctx.advanceTimestamp(HTLCUpdateProcessingTime)
     channel.addRemoteHTLC(hop.desc) match {
       case Some(error) =>
         throw new HTLCUpdateFailure(s"Error receiving HTLC ${hop.id} on channel ${hop.channel.id}: ${error}")
@@ -88,13 +89,14 @@ class NodeActor(val id: NodeID,
     nextHops match {
       case nextHop :: restHops =>
         // Intermediate hop in the circuit.
+        ctx.advanceTimestamp(HTLCUpdateProcessingTime)
         val event = sendHTLC(nextHop) match {
           case Left(error) =>
             channel.failRemoteHTLC(hop.id).left.foreach(error => throw new HTLCUpdateFailure(
               s"Error failing newly added HTLC ${hop.id} on channel ${hop.channel.id}: $error"
             ))
             val failMsg = UpdateFailHTLC(backwardsRoute, error, Some(nextHop.channel))
-            actions.sendMessage(HTLCUpdateProcessingTime, sender, failMsg)
+            ctx.sendMessage(sender, failMsg)
 
           case Right(nextHtlc) =>
             logger.debug(
@@ -104,31 +106,31 @@ class NodeActor(val id: NodeID,
               "paymentID" -> nextHtlc.paymentID.toJson,
             )
             val newRoute = ForwardRoutingPacket(nextHtlc :: restHops, route.finalHop, backwardsRoute)
-            actions.sendMessage(HTLCUpdateProcessingTime, nextHop.recipient, UpdateAddHTLC(newRoute))
+            ctx.sendMessage(nextHop.recipient, UpdateAddHTLC(newRoute))
         }
 
       case Nil =>
         // Final hop in the circuit.
-        val delay = HTLCUpdateProcessingTime
+        ctx.advanceTimestamp(HTLCUpdateProcessingTime)
         acceptHTLC(hop, route.finalHop) match {
           case Some(error) =>
             channel.failRemoteHTLC(hop.id).left.foreach(error => throw new HTLCUpdateFailure(
               s"Error failing newly added HTLC ${hop.id} on channel ${hop.channel.id}: $error"
             ))
             val failMsg = UpdateFailHTLC(backwardsRoute, error, None)
-            actions.sendMessage(delay, sender, failMsg)
+            ctx.sendMessage(sender, failMsg)
 
           case None =>
             channel.fulfillRemoteHTLC(hop.id).left.foreach(error => throw new HTLCUpdateFailure(
               s"Error fulfilling newly added HTLC ${hop.id} on channel ${hop.channel.id}: $error"
             ))
-            actions.sendMessage(delay, sender, UpdateFulfillHTLC(backwardsRoute))
+            ctx.sendMessage(sender, UpdateFulfillHTLC(backwardsRoute))
         }
     }
   }
 
   def handleUpdateFailHTLC(sender: NodeID, failMsg: UpdateFailHTLC)
-                          (implicit actions: NodeActions): Unit = {
+                          (implicit ctx: NodeContext): Unit = {
     val UpdateFailHTLC(route, _, _) = failMsg
     val ((channelInfo, htlcID) :: nextHops) = route.hops
     val channelID = channelInfo.id
@@ -137,6 +139,7 @@ class NodeActor(val id: NodeID,
       throw new HTLCUpdateFailure(s"Cannot receive HTLC on unknown channel ${channelID}")
     )
 
+    ctx.advanceTimestamp(HTLCUpdateProcessingTime)
     val htlc = channel.failLocalHTLC(htlcID) match {
       case Right(htlc) => htlc
       case Left(error) => throw new HTLCUpdateFailure(
@@ -149,16 +152,18 @@ class NodeActor(val id: NodeID,
         // Intermediate hop in the circuit.
         val nextChannelID = nextChannelInfo.id
         val maybeError = channels.get(nextChannelID) match {
-          case Some(nextChannel) => nextChannel.failRemoteHTLC(nextHtlcID).left.toOption
+          case Some(nextChannel) => {
+            ctx.advanceTimestamp(HTLCUpdateProcessingTime)
+            nextChannel.failRemoteHTLC(nextHtlcID).left.toOption
+          }
           case None => Some(UnknownNextPeer)
         }
         maybeError.foreach(error => throw new HTLCUpdateFailure(
           s"Error forwarding HTLC ${nextHtlcID} fail on channel ${nextChannelID}: $error"
         ))
 
-        val delay = HTLCUpdateProcessingTime
         val newRoute = BackwardRoutingPacket(nextHops)
-        actions.sendMessage(delay, nextChannelInfo.source, failMsg.copy(route = newRoute))
+        ctx.sendMessage(nextChannelInfo.source, failMsg.copy(route = newRoute))
       case Nil =>
         // Error made it back to the original sender.
         failPayment(htlc.paymentID, failMsg.error, failMsg.channel)
@@ -166,7 +171,7 @@ class NodeActor(val id: NodeID,
   }
 
   def handleUpdateFulfillHTLC(sender: NodeID, fulfillMsg: UpdateFulfillHTLC)
-                             (implicit actions: NodeActions): Unit = {
+                             (implicit ctx: NodeContext): Unit = {
     val UpdateFulfillHTLC(route) = fulfillMsg
     val ((channelInfo, htlcID) :: nextHops) = route.hops
     val channelID = channelInfo.id
@@ -175,6 +180,7 @@ class NodeActor(val id: NodeID,
       throw new HTLCUpdateFailure(s"Cannot receive HTLC on unknown channel ${channelID}")
     )
 
+    ctx.advanceTimestamp(HTLCUpdateProcessingTime)
     val htlc = channel.fulfillLocalHTLC(htlcID) match {
       case Right(htlc) => htlc
       case Left(error) =>
@@ -185,7 +191,10 @@ class NodeActor(val id: NodeID,
       case (nextChannelInfo, nextHtlcID) :: _ =>
         // Intermediate hop in the circuit.
         val maybeError = channels.get(nextChannelInfo.id) match {
-          case Some(nextChannel) => nextChannel.failRemoteHTLC(nextHtlcID).left.toOption
+          case Some(nextChannel) => {
+            ctx.advanceTimestamp(HTLCUpdateProcessingTime)
+            nextChannel.failRemoteHTLC(nextHtlcID).left.toOption
+          }
           case None => Some(UnknownNextPeer)
         }
         maybeError.foreach(error => throw new HTLCUpdateFailure(
@@ -193,29 +202,36 @@ class NodeActor(val id: NodeID,
         ))
 
         val newRoute = BackwardRoutingPacket(nextHops)
-        actions.sendMessage(HTLCUpdateProcessingTime, nextChannelInfo.source, UpdateFulfillHTLC(newRoute))
+        ctx.sendMessage(nextChannelInfo.source, UpdateFulfillHTLC(newRoute))
 
       case Nil =>
         // Payment confirmation made it back to the original sender.
-        completePayment(htlc.paymentID, actions.timestamp)
+        completePayment(htlc.paymentID, ctx.timestamp)
     }
   }
 
   def handleOpenChannel(otherNode: NodeID, message: OpenChannel)
-                       (implicit actions: NodeActions): Unit = {
+                       (implicit ctx: NodeContext): Unit = {
     // TODO: Sanity check params
-    val acceptMsg = AcceptChannel(message, params.requiredConfirmations, params.channelParams(message.capacity))
-    actions.sendMessage(OpenChannelProcessingTime, otherNode, acceptMsg)
+    val acceptMsg = AcceptChannel(
+      message,
+      params.requiredConfirmations,
+      params.channelParams(message.capacity)
+    )
+
+    ctx.advanceTimestamp(InsignificantTimeDelta)
+    ctx.sendMessage(otherNode, acceptMsg)
   }
 
   def handleAcceptChannel(otherNode: NodeID, acceptMsg: AcceptChannel)
-                         (implicit actions: NodeActions): Unit = {
+                         (implicit ctx: NodeContext): Unit = {
     // TODO: Sanity check params
     val openMsg = acceptMsg.openMsg
     val channelID = acceptMsg.openMsg.id
 
-    // The initiating node broadcasts the funding transactions to the blockchain.
+    // The initiating node broadcasts the funding transaction to the blockchain.
     blockchain.newFundingTransaction(channelID)
+    ctx.advanceTimestamp(GenerateFundingTransactionTime)
 
     channelOpen(
       channelID = openMsg.id,
@@ -226,11 +242,11 @@ class NodeActor(val id: NodeID,
       localParams = openMsg.params,
       remoteParams = acceptMsg.params
     )
-    actions.sendMessage(InsignificantTimeDelta, otherNode, FundingCreated(channelID, acceptMsg))
+    ctx.sendMessage(otherNode, FundingCreated(channelID, acceptMsg))
   }
 
   def handleFundingCreated(otherNode: NodeID, message: FundingCreated)
-                          (implicit actions: NodeActions): Unit = {
+                          (implicit ctx: NodeContext): Unit = {
     val acceptMsg = message.acceptMsg
     val openMsg = acceptMsg.openMsg
     val channelID = openMsg.id
@@ -290,10 +306,10 @@ class NodeActor(val id: NodeID,
   }
 
   def sendPayment(paymentInfo: PaymentInfo)
-                 (implicit actions: NodeActions): Unit = {
+                 (implicit ctx: NodeContext): Unit = {
     val pendingPayment = PendingPayment(
       paymentInfo,
-      actions.timestamp,
+      ctx.timestamp,
       tries = 1,
       constraints = new RouteConstraints(),
     )
@@ -301,7 +317,7 @@ class NodeActor(val id: NodeID,
   }
 
   def executePayment(pendingPayment: PendingPayment)
-                    (implicit actions: NodeActions): Unit = {
+                    (implicit ctx: NodeContext): Unit = {
     val paymentInfo = pendingPayment.info
     val paymentID = paymentInfo.paymentID
     if (paymentInfo.recipientID == id) {
@@ -321,6 +337,7 @@ class NodeActor(val id: NodeID,
 
     pendingPayments(paymentID) = pendingPayment
 
+    ctx.advanceTimestamp(RoutingTime)
     route(paymentInfo, pendingPayment.constraints, paymentIDKnown = true) match {
       // Attempt to send payment through the Lightning Network if a route is found.
       case Some(routingPacket) =>
@@ -334,8 +351,9 @@ class NodeActor(val id: NodeID,
           case Left(error) =>
             failPayment(firstHop.paymentID, error, Some(firstHop.channel))
           case Right(firstHTLC) =>
+            ctx.advanceTimestamp(HTLCUpdateProcessingTime)
             val newRoute = routingPacket.copy(hops = firstHTLC :: restHops)
-            actions.sendMessage(RoutingTime, firstHop.recipient, UpdateAddHTLC(newRoute))
+            ctx.sendMessage(firstHop.recipient, UpdateAddHTLC(newRoute))
         }
 
       // Otherwise, open a channel directly to the peer
@@ -351,11 +369,11 @@ class NodeActor(val id: NodeID,
   }
 
   private def initiateChannelOpen(nodeID: NodeID, capacity: Value, pushAmount: Value)
-                                 (implicit actions: NodeActions): ChannelID = {
+                                 (implicit ctx: NodeContext): ChannelID = {
     val channelID = Util.randomUUID()
     val channelParams = params.channelParams(capacity)
     val openMsg = OpenChannel(channelID, capacity, pushAmount, channelParams)
-    actions.sendMessage(RoutingTime, nodeID, openMsg)
+    ctx.sendMessage(nodeID, openMsg)
     channelID
   }
 
@@ -416,7 +434,7 @@ class NodeActor(val id: NodeID,
   }
 
   private def failPayment(paymentID: PaymentID, error: RoutingError, channel: Option[Channel])
-                         (implicit actions: NodeActions): Unit = {
+                         (implicit ctx: NodeContext): Unit = {
     val pendingPayment = pendingPayments.remove(paymentID)
       .getOrElse(throw new AssertionError(s"Unknown payment ${paymentID} failed"))
 
@@ -478,7 +496,7 @@ class NodeActor(val id: NodeID,
       tries = pendingPayment.tries + 1,
       constraints = newConstraints,
     )
-    actions.retryPayment(PaymentRetryDelay, newPendingPayment)
+    ctx.retryPayment(PaymentRetryDelay, newPendingPayment)
   }
 
   /** This algorithm is based off of LND's autopilot heuristic, which uses preferential attachment
@@ -495,7 +513,7 @@ class NodeActor(val id: NodeID,
     * See https://github.com/lightningnetwork/lnd/blob/v0.5-beta/autopilot/prefattach.go#L145
     */
   def openNewChannels(budget: Value)
-                     (implicit actions: NodeActions): Unit = {
+                     (implicit ctx: NodeContext): Unit = {
     // Count the number of channels for each non-banned node. These are the weights of the
     // PMF (probability mass function) of the distribution.
     //
@@ -523,10 +541,13 @@ class NodeActor(val id: NodeID,
 }
 
 object NodeActor {
+  // These numbers are entirely made up with a little bit of intuition.
+  // TODO: Perform time measurements on an actual node.
   val RoutingTime: TimeDelta = 100
   val HTLCUpdateProcessingTime: TimeDelta = 10
-  val OpenChannelProcessingTime = 1
-  val InsignificantTimeDelta = 1
+  val GenerateFundingTransactionTime: TimeDelta = 100
+  val InsignificantTimeDelta: TimeDelta = 1
+
   val CapacityMultiplier = 4
   val PaymentRetryDelay = 1000
 

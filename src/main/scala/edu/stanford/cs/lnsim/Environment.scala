@@ -5,7 +5,7 @@ import edu.stanford.cs.lnsim.log.{StructuredLogger, StructuredLogging}
 import spray.json._
 import spray.json.DefaultJsonProtocol._
 import JSONProtocol._
-import edu.stanford.cs.lnsim.node.NodeActor
+import edu.stanford.cs.lnsim.node.{NodeActor, NodeContext}
 
 import scala.util.Random
 
@@ -45,7 +45,7 @@ class Environment(private val nodeSeq: Seq[NodeActor],
         for (notification <- blockchain.blockArrived()) notification match {
           case Blockchain.ChannelOpened(channelID, nodeID) =>
             val node = nodes(nodeID)
-            implicit val actions = new EnvNodeActions(timestamp, node, scheduleEvent)
+            implicit val actions = new EnvNodeContext(timestamp, node, scheduleEvent)
             node.handleChannelOpenedOnChain(channelID)
           case Blockchain.ChannelClosed(channelID) =>
         }
@@ -53,11 +53,11 @@ class Environment(private val nodeSeq: Seq[NodeActor],
 
       case events.NewPayment(paymentInfo) =>
         val sender = paymentInfo.sender
-        implicit val actions = new EnvNodeActions(timestamp, sender, scheduleEvent)
+        implicit val actions = new EnvNodeContext(timestamp, sender, scheduleEvent)
         sender.sendPayment(paymentInfo)
 
       case events.ReceiveMessage(sender, recipient, message) =>
-        implicit val actions = new EnvNodeActions(timestamp, recipient, scheduleEvent)
+        implicit val actions = new EnvNodeContext(timestamp, recipient, scheduleEvent)
 
         message match {
           case message @ OpenChannel(_, _, _, _) => recipient.handleOpenChannel(sender.id, message)
@@ -100,29 +100,35 @@ class Environment(private val nodeSeq: Seq[NodeActor],
         }
 
       case events.RetryPayment(node, payment) =>
-        implicit val actions = new EnvNodeActions(timestamp, node, scheduleEvent)
+        implicit val actions = new EnvNodeContext(timestamp, node, scheduleEvent)
         node.executePayment(payment)
 
       case events.OpenChannels(node, budget) =>
-        implicit val actions = new EnvNodeActions(timestamp, node, scheduleEvent)
+        implicit val actions = new EnvNodeContext(timestamp, node, scheduleEvent)
         node.openNewChannels(budget)
     }
   }
 
   private def nodeReceiveTime(node: NodeActor): TimeDelta = Util.drawExponential(node.meanNetworkLatency)
 
-  private class EnvNodeActions(val timestamp: Timestamp,
+  private class EnvNodeContext(private val initialTimestamp: Timestamp,
                                private val node: NodeActor,
-                               private val scheduleEvent: (TimeDelta, Event) => Unit) extends NodeActions {
-    override def sendMessage(delay: TimeDelta, recipientID: NodeID, message: Message): Unit = {
+                               private val scheduleEvent: (TimeDelta, Event) => Unit) extends NodeContext {
+    private var timePassed: TimeDelta = 0
+
+    override def timestamp: Timestamp = initialTimestamp + timePassed
+
+    override def advanceTimestamp(time: TimeDelta): Unit = timePassed += time
+
+    override def sendMessage(recipientID: NodeID, message: Message): Unit = {
       val recipient = nodes(recipientID)
       scheduleEvent(
-        delay + nodeReceiveTime(recipient),
+        timePassed + nodeReceiveTime(recipient),
         events.ReceiveMessage(node, recipient, message)
       )
     }
 
     override def retryPayment(delay: TimeDelta, payment: PendingPayment): Unit =
-      scheduleEvent(delay, events.RetryPayment(node, payment))
+      scheduleEvent(timePassed + delay, events.RetryPayment(node, payment))
   }
 }

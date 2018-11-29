@@ -20,6 +20,14 @@ package object lnsim {
     */
   type Value = Long
 
+  /** Parameters negotiated between nodes in a channel in the open_channel and accept_channel
+    * messages in BOLT 2.
+    */
+  case class ChannelParams(requiredReserve: Value,
+                           dustLimit: Value,
+                           maxHTLCInFlight: Value,
+                           maxAcceptedHTLCs: Value,
+                           htlcMinimum: Value)
 
   case class HTLC(channel: Channel, desc: HTLC.Desc) {
     def channelID: ChannelID = channel.id
