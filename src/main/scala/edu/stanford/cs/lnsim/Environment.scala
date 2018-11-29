@@ -5,6 +5,7 @@ import edu.stanford.cs.lnsim.log.{StructuredLogger, StructuredLogging}
 import spray.json._
 import spray.json.DefaultJsonProtocol._
 import JSONProtocol._
+import edu.stanford.cs.lnsim.node.NodeActor
 
 import scala.util.Random
 

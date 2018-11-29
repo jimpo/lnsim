@@ -1,14 +1,15 @@
-package edu.stanford.cs.lnsim
+package edu.stanford.cs.lnsim.node
 
+import edu.stanford.cs.lnsim._
 import edu.stanford.cs.lnsim.des.{TimeDelta, Timestamp}
 import edu.stanford.cs.lnsim.graph.Channel
 import edu.stanford.cs.lnsim.log.StructuredLogging
 import edu.stanford.cs.lnsim.routing.{NetworkGraphView, RouteConstraints, Router}
+import edu.stanford.cs.lnsim.JSONProtocol._
+import spray.json.DefaultJsonProtocol._
+import spray.json._
 
 import scala.collection.mutable
-import spray.json._
-import spray.json.DefaultJsonProtocol._
-import JSONProtocol._
 
 class NodeActor(val id: NodeID,
                 val params: NodeActor.Params,

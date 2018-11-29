@@ -1,5 +1,7 @@
 package edu.stanford.cs.lnsim
 
+import edu.stanford.cs.lnsim.node.NodeActor
+
 package object events {
   sealed trait Base
 

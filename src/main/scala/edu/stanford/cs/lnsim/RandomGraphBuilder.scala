@@ -1,6 +1,7 @@
 package edu.stanford.cs.lnsim
 
 import edu.stanford.cs.lnsim.graph.NetworkGraph
+import edu.stanford.cs.lnsim.node.{BlockchainView, NodeActor}
 import edu.stanford.cs.lnsim.routing.{MinimalFeeRouter, NetworkGraphView}
 
 /**

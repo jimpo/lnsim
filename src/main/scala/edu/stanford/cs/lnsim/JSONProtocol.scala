@@ -3,6 +3,7 @@ package edu.stanford.cs.lnsim
 import java.util.UUID
 
 import edu.stanford.cs.lnsim.graph.Channel
+import edu.stanford.cs.lnsim.node.NodeActor
 import spray.json._
 import spray.json.DefaultJsonProtocol._
 
@@ -79,6 +80,11 @@ object JSONProtocol {
       case e @ events.RetryPayment(_, payment) => Util.extendJsObject(
         payment.toJson.asJsObject,
         "name" -> "RetryPayment".toJson,
+      )
+      case e @ events.OpenChannels(node, budget) => JsObject(
+        "name" -> "OpenChannels".toJson,
+        "node" -> node.id.toJson,
+        "budget" -> budget.toJson,
       )
     }
   }

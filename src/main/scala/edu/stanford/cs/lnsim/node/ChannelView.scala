@@ -1,7 +1,12 @@
-package edu.stanford.cs.lnsim
+package edu.stanford.cs.lnsim.node
+
+import edu.stanford.cs.lnsim._
 
 import scala.collection.mutable
 
+/** A ChannelView is a node's view of a local channel with another node. This class manages
+  * balances and HTLCs.
+  */
 class ChannelView(val otherNode: NodeID,
                   val ourInitialBalance: Value,
                   val theirInitialBalance: Value,

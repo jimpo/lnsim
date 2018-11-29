@@ -1,4 +1,6 @@
-package edu.stanford.cs.lnsim
+package edu.stanford.cs.lnsim.node
+
+import edu.stanford.cs.lnsim._
 
 class BlockchainView(private val nodeID: NodeID, private val blockchain: Blockchain) {
   def blockNumber: BlockNumber = blockchain.blockNumber
