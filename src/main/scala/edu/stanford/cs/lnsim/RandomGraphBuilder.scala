@@ -25,7 +25,9 @@ class RandomGraphBuilder(private val numNodes: Int,
       EclairDefaults.FinalExpiryDelta,
       EclairDefaults.ExpiryDelta,
       EclairDefaults.FeeBase,
-      EclairDefaults.FeeProportionalMillionths
+      EclairDefaults.FeeProportionalMillionths,
+      LndDefaults.AutoPilotMinChannelSize,
+      LndDefaults.AutoPilotMinChannelSize,
     )
 
     for (_ <- 0 until numNodes) yield {

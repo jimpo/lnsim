@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
   <component name="ScalaCompilerConfiguration">
-    <profile name="Gradle 1" modules="edu.stanford.cs.lnsim,lnsim_main,lnsim_test">
+    <profile name="Gradle 1" modules="lnsim_main,lnsim_test,edu.stanford.cs.lnsim">
       <option name="deprecationWarnings" value="true" />
       <option name="uncheckedWarnings" value="true" />
       <parameters>

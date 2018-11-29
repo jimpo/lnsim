@@ -101,6 +101,10 @@ class Environment(private val nodeSeq: Seq[NodeActor],
       case events.RetryPayment(node, payment) =>
         implicit val actions = new EnvNodeActions(timestamp, node, scheduleEvent)
         node.executePayment(payment)
+
+      case events.OpenChannels(node, budget) =>
+        implicit val actions = new EnvNodeActions(timestamp, node, scheduleEvent)
+        node.openNewChannels(budget)
     }
   }
 

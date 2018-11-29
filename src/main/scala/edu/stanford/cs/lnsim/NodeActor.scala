@@ -15,6 +15,7 @@ class NodeActor(val id: NodeID,
                 private val router: Router,
                 private val graphView: NetworkGraphView,
                 private val blockchain: BlockchainView) extends StructuredLogging {
+
   import NodeActor._
 
   private val channels: mutable.Map[ChannelID, ChannelView] = mutable.HashMap.empty
@@ -339,17 +340,22 @@ class NodeActor(val id: NodeID,
       // Otherwise, open a channel directly to the peer
       case None =>
         val capacity = newChannelCapacity(paymentInfo.recipientID, paymentInfo.amount)
-        val channelID = Util.randomUUID()
-        val channelParams = params.channelParams(capacity)
-        val openMsg = OpenChannel(channelID, capacity, paymentInfo.amount, channelParams)
-
+        val channelID = initiateChannelOpen(paymentInfo.recipientID, capacity, paymentInfo.amount)
         logger.debug(
           "msg" -> "Attempting to complete payment by opening new direct channel".toJson,
           "channelID" -> channelID.toJson,
           "paymentID" -> paymentInfo.paymentID.toJson
         )
-        actions.sendMessage(RoutingTime, paymentInfo.recipientID, openMsg)
     }
+  }
+
+  private def initiateChannelOpen(nodeID: NodeID, capacity: Value, pushAmount: Value)
+                                 (implicit actions: NodeActions): ChannelID = {
+    val channelID = Util.randomUUID()
+    val channelParams = params.channelParams(capacity)
+    val openMsg = OpenChannel(channelID, capacity, pushAmount, channelParams)
+    actions.sendMessage(RoutingTime, nodeID, openMsg)
+    channelID
   }
 
   private def sendHTLC(htlc: HTLC): Either[RoutingError, HTLC] = {
@@ -357,7 +363,7 @@ class NodeActor(val id: NodeID,
       case Some(channel) =>
         // TODO: Check CLTV delta + fee rate against channel update params
         val htlcDesc = htlc.desc.copy(id = channel.ourNextHTLCID)
-       channel.addLocalHTLC(htlcDesc)
+        channel.addLocalHTLC(htlcDesc)
           .map(_ match {
             case ChannelView.Error.IncorrectHTLCID =>
               throw new AssertionError("HTLC should have been correctly assigned in call to addLocalHTLC")
@@ -460,14 +466,58 @@ class NodeActor(val id: NodeID,
 
     // Update temporary constraints
     var newConstraints = pendingPayment.constraints
-    newConstraints = temporaryIgnoreNode.foldLeft(newConstraints) { _.banNode(_) }
-    newConstraints = temporaryIgnoreChannel.foldLeft(newConstraints) { _.banChannel(_) }
+    newConstraints = temporaryIgnoreNode.foldLeft(newConstraints) {
+      _.banNode(_)
+    }
+    newConstraints = temporaryIgnoreChannel.foldLeft(newConstraints) {
+      _.banChannel(_)
+    }
 
     val newPendingPayment = pendingPayment.copy(
       tries = pendingPayment.tries + 1,
       constraints = newConstraints,
     )
     actions.retryPayment(PaymentRetryDelay, newPendingPayment)
+  }
+
+  /** This algorithm is based off of LND's autopilot heuristic, which uses preferential attachment
+    * to determine which nodes to open channels to. The algorithm is to:
+    *
+    * Sample a node at random
+    *   - that we do not already have a channel with
+    *   - that is not banned
+    *   - weighted by the number of active channels it has with other nodes
+    *
+    * Attempt to open a channel up to some maximum capacity. Repeat until the budget becomes less
+    * than the configured minimum channel size.
+    *
+    * See https://github.com/lightningnetwork/lnd/blob/v0.5-beta/autopilot/prefattach.go#L145
+    */
+  def openNewChannels(budget: Value)
+                     (implicit actions: NodeActions): Unit = {
+    // Count the number of channels for each non-banned node. These are the weights of the
+    // PMF (probability mass function) of the distribution.
+    //
+    // TODO: Only open channels to nodes we do not already have connections or pending connections to.
+    val nodeWeights = graphView.nodeIterator
+      .filter(node => graphView.constraints.allowNode(node.id))
+      .map(node => node.id -> node.channels.size)
+      .toArray
+
+    // Convert the PMF to a CMF (cumulative mass function) in place.
+    for (i <- 1 until nodeWeights.length) {
+      val (nodeID, weight) = nodeWeights(i)
+      nodeWeights(i) = (nodeID, weight + nodeWeights(i - 1)._2)
+    }
+
+    var remainingBudget = budget
+    while (remainingBudget >= params.autoPilotMinChannelSize) {
+      val nodeID = Util.sampleCMF(nodeWeights)
+      val capacity = Math.min(remainingBudget, params.autoPilotMaxChannelSize)
+
+      initiateChannelOpen(nodeID, capacity, pushAmount = 0)
+      remainingBudget -= capacity
+    }
   }
 }
 
@@ -488,7 +538,9 @@ object NodeActor {
                     finalExpiryDelta: BlockDelta,
                     expiryDelta: BlockDelta,
                     feeBase: Value,
-                    feeProportionalMillionths: Long) {
+                    feeProportionalMillionths: Long,
+                    autoPilotMinChannelSize: Value,
+                    autoPilotMaxChannelSize: Value) {
 
     def channelParams(capacity: Value): ChannelParams =
       ChannelParams(
