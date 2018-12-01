@@ -1,8 +1,9 @@
-package edu.stanford.cs.lnsim
+package edu.stanford.cs.lnsim.graph
 
-import edu.stanford.cs.lnsim.graph.{Channel, NetworkGraph}
+import edu.stanford.cs.lnsim.{EclairDefaults, Util}
 import org.scalatest.{FlatSpec, Matchers}
 
+//noinspection OptionEqualsSome,OptionEqualsSome,OptionEqualsSome,OptionEqualsSome,OptionEqualsSome,OptionEqualsSome,OptionEqualsSome,OptionEqualsSome,OptionEqualsSome,EmptyCheck
 class NetworkGraphSpec extends FlatSpec with Matchers {
   behavior of "A NetworkGraph"
 

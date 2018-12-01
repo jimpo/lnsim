@@ -3,6 +3,7 @@ package edu.stanford.cs.lnsim
 import edu.stanford.cs.lnsim.des.TimeDelta
 import org.scalatest.{BeforeAndAfter, FunSpec, Matchers, OneInstancePerTest}
 
+//noinspection ZeroIndexToHead
 class EnvironmentSpec extends FunSpec with OneInstancePerTest with BeforeAndAfter with Matchers {
   describe("An Environment") {
     val blockchain = new Blockchain(Config.DefaultBlockInterval, Config.DefaultFeePerWeight)

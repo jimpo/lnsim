@@ -51,10 +51,10 @@ class DelayingActor(id: NodeID,
 
     val prevChannel = lookupChannel(prevChannelID)
       .getOrElse(throw new HTLCUpdateFailure(
-        s"Node ${id} received HTLC on unknown channel ${prevChannelID}"))
+        s"Node $id received HTLC on unknown channel $prevChannelID"))
 
     prevChannel.failRemoteHTLC(prevHTLCID).left.foreach(error => throw new HTLCUpdateFailure(
-      s"Error failing newly added HTLC ${prevHTLCID} on channel ${prevChannelID}: $error"
+      s"Error failing newly added HTLC $prevHTLCID on channel $prevChannelID: $error"
     ))
 
     val error = TemporaryChannelFailure

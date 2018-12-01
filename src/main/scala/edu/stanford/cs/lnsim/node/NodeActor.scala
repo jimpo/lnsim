@@ -34,7 +34,7 @@ class NodeActor(val id: NodeID,
                   localParams: ChannelParams,
                   remoteParams: ChannelParams): Unit = {
     if (channels.contains(channelID)) {
-      throw new AssertionError(s"Channel ${channelID} has already been added to node $id")
+      throw new AssertionError(s"Channel $channelID has already been added to node $id")
     }
 
     logger.info(
@@ -73,13 +73,13 @@ class NodeActor(val id: NodeID,
                            (implicit ctx: NodeContext): Unit = {
      val channel = lookupChannel(htlc.channel.id)
        .getOrElse(throw new HTLCUpdateFailure(
-         s"Node ${id} cannot receive HTLC on unknown channel ${htlc.channel.id}"))
+         s"Node $id cannot receive HTLC on unknown channel ${htlc.channel.id}"))
 
     // The simulation environment makes the assumption that HTLC updates are atomic for the sake of simplicity,
     // so if an HTLC was added without error on the other end of the channel, there should be no error here either.
     channel.addRemoteHTLC(htlc.desc) match {
       case Some(error) =>
-        throw new HTLCUpdateFailure(s"Error receiving HTLC ${htlc.id} on channel ${htlc.channel.id}: ${error}")
+        throw new HTLCUpdateFailure(s"Error receiving HTLC ${htlc.id} on channel ${htlc.channel.id}: $error")
       case None =>
     }
 
@@ -114,10 +114,10 @@ class NodeActor(val id: NodeID,
 
         val prevChannel = lookupChannel(prevChannelID)
           .getOrElse(throw new HTLCUpdateFailure(
-            s"Node ${id} received HTLC on unknown channel ${prevChannelID}"))
+            s"Node $id received HTLC on unknown channel $prevChannelID"))
 
         prevChannel.failRemoteHTLC(prevHTLCID).left.foreach(error => throw new HTLCUpdateFailure(
-          s"Error failing newly added HTLC ${prevHTLCID} on channel ${prevChannelID}: $error"
+          s"Error failing newly added HTLC $prevHTLCID on channel $prevChannelID: $error"
         ))
         val failMsg = UpdateFailHTLC(route.backwardRoute, error, Some(nextHop.channel))
         ctx.sendMessage(prevChannel.otherNode, failMsg)
@@ -139,14 +139,14 @@ class NodeActor(val id: NodeID,
                                    (implicit ctx: NodeContext): Unit = {
     val channelID = incomingHTLC.channel.id
     val channel = channels.getOrElse(channelID,
-      throw new HTLCUpdateFailure(s"Node ${id} received HTLC on unknown channel ${channelID}")
+      throw new HTLCUpdateFailure(s"Node $id received HTLC on unknown channel $channelID")
     )
 
     acceptHTLC(incomingHTLC, finalHop) match {
       case Some(error) =>
         ctx.advanceTimestamp(HTLCUpdateProcessingTime)
         channel.failRemoteHTLC(incomingHTLC.id).left.foreach(error => throw new HTLCUpdateFailure(
-          s"Error failing newly added HTLC ${incomingHTLC.id} on channel ${channelID}: $error"
+          s"Error failing newly added HTLC ${incomingHTLC.id} on channel $channelID: $error"
         ))
         val failMsg = UpdateFailHTLC(backwardsRoute, error, None)
         ctx.sendMessage(channel.otherNode, failMsg)
@@ -154,7 +154,7 @@ class NodeActor(val id: NodeID,
       case None =>
         ctx.advanceTimestamp(HTLCUpdateProcessingTime)
         channel.fulfillRemoteHTLC(incomingHTLC.id).left.foreach(error => throw new HTLCUpdateFailure(
-          s"Error fulfilling newly added HTLC ${incomingHTLC.id} on channel ${channelID}: $error"
+          s"Error fulfilling newly added HTLC ${incomingHTLC.id} on channel $channelID: $error"
         ))
         ctx.sendMessage(channel.otherNode, UpdateFulfillHTLC(backwardsRoute))
     }
@@ -167,14 +167,14 @@ class NodeActor(val id: NodeID,
     val channelID = channelInfo.id
 
     val channel = channels.getOrElse(channelID,
-      throw new HTLCUpdateFailure(s"Cannot receive HTLC on unknown channel ${channelID}")
+      throw new HTLCUpdateFailure(s"Cannot receive HTLC on unknown channel $channelID")
     )
 
     ctx.advanceTimestamp(HTLCUpdateProcessingTime)
     val htlc = channel.failLocalHTLC(htlcID) match {
-      case Right(htlc) => htlc
+      case Right(result) => result
       case Left(error) => throw new HTLCUpdateFailure(
-        s"Error failing HTLC ${htlcID} on channel ${channelID}: $error"
+        s"Error failing HTLC $htlcID on channel $channelID: $error"
       )
     }
 
@@ -183,14 +183,13 @@ class NodeActor(val id: NodeID,
         // Intermediate hop in the circuit.
         val nextChannelID = nextChannelInfo.id
         val maybeError = channels.get(nextChannelID) match {
-          case Some(nextChannel) => {
+          case Some(nextChannel) =>
             ctx.advanceTimestamp(HTLCUpdateProcessingTime)
             nextChannel.failRemoteHTLC(nextHtlcID).left.toOption
-          }
           case None => Some(UnknownNextPeer)
         }
         maybeError.foreach(error => throw new HTLCUpdateFailure(
-          s"Error forwarding HTLC ${nextHtlcID} fail on channel ${nextChannelID}: $error"
+          s"Error forwarding HTLC $nextHtlcID fail on channel $nextChannelID: $error"
         ))
 
         val newRoute = BackwardRoutingPacket(nextHops)
@@ -208,14 +207,14 @@ class NodeActor(val id: NodeID,
     val channelID = channelInfo.id
 
     val channel = channels.getOrElse(channelID,
-      throw new HTLCUpdateFailure(s"Cannot receive HTLC on unknown channel ${channelID}")
+      throw new HTLCUpdateFailure(s"Cannot receive HTLC on unknown channel $channelID")
     )
 
     ctx.advanceTimestamp(HTLCUpdateProcessingTime)
     val htlc = channel.fulfillLocalHTLC(htlcID) match {
-      case Right(htlc) => htlc
+      case Right(result) => result
       case Left(error) =>
-        throw new HTLCUpdateFailure(s"Error fulfilling HTLC ${htlcID} on channel ${channelID}: ${error}")
+        throw new HTLCUpdateFailure(s"Error fulfilling HTLC $htlcID on channel $channelID: $error")
     }
 
     nextHops match {
@@ -229,7 +228,7 @@ class NodeActor(val id: NodeID,
           case None => Some(UnknownNextPeer)
         }
         maybeError.foreach(error => throw new HTLCUpdateFailure(
-          s"Error forwarding HTLC ${nextHtlcID} fulfill on channel ${nextChannelInfo.id}: $error"
+          s"Error forwarding HTLC $nextHtlcID fulfill on channel ${nextChannelInfo.id}: $error"
         ))
 
         val newRoute = BackwardRoutingPacket(nextHops)
@@ -468,7 +467,7 @@ class NodeActor(val id: NodeID,
         // TODO: Check CLTV delta + fee rate against channel update params
         val htlcDesc = htlc.desc.copy(id = channel.ourNextHTLCID)
         channel.addLocalHTLC(htlcDesc)
-          .map(_ match {
+          .map {
             case ChannelView.Error.IncorrectHTLCID =>
               throw new AssertionError("HTLC should have been correctly assigned in call to addLocalHTLC")
             case ChannelView.Error.BelowHTLCMinimum =>
@@ -477,7 +476,7 @@ class NodeActor(val id: NodeID,
                  ChannelView.Error.ExceedsMaxHTLCInFlight |
                  ChannelView.Error.ExceedsMaxAcceptedHTLCs =>
               TemporaryChannelFailure
-          })
+          }
           .toLeft(HTLC(htlc.channel, htlcDesc))
       case None => Left(UnknownNextPeer)
     }
@@ -508,7 +507,7 @@ class NodeActor(val id: NodeID,
 
   private def completePayment(paymentID: PaymentID, timestamp: Timestamp): Unit = {
     val pendingPayment = pendingPayments.remove(paymentID)
-      .getOrElse(throw new AssertionError(s"Unknown payment ${paymentID} failed"))
+      .getOrElse(throw new AssertionError(s"Unknown payment $paymentID failed"))
 
     logger.info(
       "msg" -> "Payment completed".toJson,
@@ -518,16 +517,16 @@ class NodeActor(val id: NodeID,
     )
   }
 
-  private def failPayment(paymentID: PaymentID, error: RoutingError, channel: Option[Channel])
+  private def failPayment(paymentID: PaymentID, error: RoutingError, maybeChannel: Option[Channel])
                          (implicit ctx: NodeContext): Unit = {
     val pendingPayment = pendingPayments.remove(paymentID)
-      .getOrElse(throw new AssertionError(s"Unknown payment ${paymentID} failed"))
+      .getOrElse(throw new AssertionError(s"Unknown payment $paymentID failed"))
 
     logger.debug(
       "msg" -> "Payment failed".toJson,
       "paymentID" -> paymentID.toJson,
       "tries" -> pendingPayment.tries.toJson,
-      "channelID" -> channel.map(_.id.toJson).getOrElse(JsNull),
+      "channelID" -> maybeChannel.map(_.id.toJson).getOrElse(JsNull),
       "error" -> error.toString.toJson,
     )
 
@@ -536,7 +535,7 @@ class NodeActor(val id: NodeID,
     var temporaryIgnoreNode = Option.empty[NodeID]
     var temporaryIgnoreChannel = Option.empty[Channel]
 
-    channel match {
+    maybeChannel match {
       case Some(channel) => error match {
         case TemporaryChannelFailure => temporaryIgnoreChannel = Some(channel)
         case _: NodeError => error match {
@@ -565,8 +564,8 @@ class NodeActor(val id: NodeID,
     }
 
     // Update global constraints
-    permanentIgnoreNode.foreach(graphView.banNode(_))
-    permanentIgnoreChannel.foreach(graphView.banChannel(_))
+    permanentIgnoreNode.foreach(graphView.banNode)
+    permanentIgnoreChannel.foreach(graphView.banChannel)
 
     // Update temporary constraints
     var newConstraints = pendingPayment.constraints

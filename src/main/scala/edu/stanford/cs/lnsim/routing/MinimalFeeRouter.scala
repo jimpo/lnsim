@@ -37,7 +37,7 @@ class MinimalFeeRouter(maxFee: Value) extends Router {
         for (channel <- channels) {
           if (checkChannel(channel, paymentInfo.amount, constraints)) {
             val newEstimate = dist + channel.fee(paymentInfo.amount)
-            val betterPath = distances.get(channel.target).map(newEstimate < _._1).getOrElse(true)
+            val betterPath = distances.get(channel.target).forall(newEstimate < _._1)
             if (betterPath) {
               distances(channel.target) = (newEstimate, channel, false)
               queue.enqueue((newEstimate, channel.target))
