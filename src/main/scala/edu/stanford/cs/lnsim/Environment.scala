@@ -5,7 +5,7 @@ import edu.stanford.cs.lnsim.log.{StructuredLogger, StructuredLogging}
 import spray.json._
 import spray.json.DefaultJsonProtocol._
 import JSONProtocol._
-import edu.stanford.cs.lnsim.node.{NodeActor, NodeContext}
+import edu.stanford.cs.lnsim.node.{NodeAction, NodeActor, NodeContext}
 
 import scala.util.Random
 
@@ -45,9 +45,13 @@ class Environment(private val nodeSeq: Seq[NodeActor],
         for (notification <- blockchain.blockArrived()) notification match {
           case Blockchain.ChannelOpened(channelID, nodeID) =>
             val node = nodes(nodeID)
-            implicit val actions = new EnvNodeContext(timestamp, node, scheduleEvent)
+            implicit val ctx = new EnvNodeContext(timestamp, node, scheduleEvent)
             node.handleChannelOpenedOnChain(channelID)
-          case Blockchain.ChannelClosed(channelID) =>
+          case Blockchain.ChannelClosed(channelID) => ???
+          case Blockchain.ScheduledAction(nodeID, action) =>
+            val node = nodes(nodeID)
+            implicit val ctx = new EnvNodeContext(timestamp, node, scheduleEvent)
+            node.handleAction(action)
         }
         scheduleEvent(blockchain.nextBlockTime(), events.NewBlock(number + 1))
 
@@ -99,9 +103,9 @@ class Environment(private val nodeSeq: Seq[NodeActor],
           scheduleEvent(nextPaymentQuery, events.QueryNewPayment())
         }
 
-      case events.RetryPayment(node, payment) =>
+      case events.ScheduledAction(node, action) =>
         implicit val actions = new EnvNodeContext(timestamp, node, scheduleEvent)
-        node.executePayment(payment)
+        node.handleAction(action)
 
       case events.OpenChannels(node, budget) =>
         implicit val actions = new EnvNodeContext(timestamp, node, scheduleEvent)
@@ -128,7 +132,7 @@ class Environment(private val nodeSeq: Seq[NodeActor],
       )
     }
 
-    override def retryPayment(delay: TimeDelta, payment: PendingPayment): Unit =
-      scheduleEvent(timePassed + delay, events.RetryPayment(node, payment))
+    override def scheduleAction(delay: TimeDelta, action: NodeAction): Unit =
+      scheduleEvent(timePassed + delay, events.ScheduledAction(node, action))
   }
 }

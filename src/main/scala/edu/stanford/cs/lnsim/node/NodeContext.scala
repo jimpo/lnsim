@@ -13,8 +13,8 @@ trait NodeContext {
   /** Register that a given amount of time has passed. */
   def advanceTimestamp(time: TimeDelta): Unit
 
-  /** Schedule a payment to be retried after a given delay. */
-  def retryPayment(delay: TimeDelta, payment: PendingPayment): Unit
+  /** Schedule an action to be taken a given delay. */
+  def scheduleAction(delay: TimeDelta, action: NodeAction): Unit
 
   /** Send a Lightning protocol message to another node on the network. */
   def sendMessage(recipient: NodeID, message: Message): Unit

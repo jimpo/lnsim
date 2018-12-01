@@ -2,9 +2,9 @@ package edu.stanford.cs.lnsim
 
 import edu.stanford.cs.lnsim.des.TimeDelta
 import edu.stanford.cs.lnsim.log.StructuredLogging
+import edu.stanford.cs.lnsim.node.NodeAction
 
 import scala.collection.mutable
-
 import spray.json._
 import spray.json.DefaultJsonProtocol._
 
@@ -40,18 +40,23 @@ class Blockchain(val blockInterval: TimeDelta) extends StructuredLogging {
     fundingTransactions.get(channelID) match {
       case Some(acceptedHeight) =>
         val confirmedHeight = acceptedHeight + confirmations - 1
-        if (confirmedHeight <= blockNumber) {
-          return false
-        }
-
-        val tail = onChainEvents.getOrElse(confirmedHeight, Nil)
-        val notification: Notification = ChannelOpened(channelID, nodeID)
-        onChainEvents.put(confirmedHeight, notification :: tail)
-        true
-
+        subscribe(confirmedHeight, ChannelOpened(channelID, nodeID))
       case None =>
         throw new AssertionError(s"Cannot subscribe to unknown channel $channelID")
     }
+  }
+
+  def subscribeAction(subscribeNumber: BlockNumber, nodeID: NodeID, action: NodeAction): Boolean =
+    subscribe(subscribeNumber, ScheduledAction(nodeID, action))
+
+  private def subscribe(subscribeNumber: BlockNumber, notification: Notification): Boolean = {
+    if (subscribeNumber <= blockNumber) {
+      return false
+    }
+
+    val tail = onChainEvents.getOrElse(subscribeNumber, Nil)
+    onChainEvents.put(subscribeNumber, notification :: tail)
+    true
   }
 }
 
@@ -59,4 +64,5 @@ object Blockchain {
   sealed trait Notification
   case class ChannelOpened(channelID: ChannelID, nodeID: NodeID) extends Notification
   case class ChannelClosed(channelID: ChannelID) extends Notification
+  case class ScheduledAction(nodeID: NodeID, action: NodeAction) extends Notification
 }

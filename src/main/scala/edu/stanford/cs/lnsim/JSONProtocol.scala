@@ -77,9 +77,10 @@ object JSONProtocol {
         "message" -> message.toJson,
       )
       case e @ events.QueryNewPayment() => QueryNewPaymentFormat.write(e)
-      case e @ events.RetryPayment(_, payment) => Util.extendJsObject(
-        payment.toJson.asJsObject,
-        "name" -> "RetryPayment".toJson,
+      case e @ events.ScheduledAction(node, action) => JsObject(
+        "name" -> "ScheduledAction".toJson,
+        "node" -> node.id.toJson,
+        "action" -> action.getClass.getSimpleName.toJson,
       )
       case e @ events.OpenChannels(node, budget) => JsObject(
         "name" -> "OpenChannels".toJson,

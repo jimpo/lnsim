@@ -66,66 +66,93 @@ class NodeActor(val id: NodeID,
     }
   }
 
+  protected def addRemoteHTLC(htlc: HTLC)
+                           (implicit ctx: NodeContext): Unit = {
+     val channel = channels.getOrElse(htlc.channel.id,
+       throw new HTLCUpdateFailure(s"Node ${id} cannot receive HTLC on unknown channel ${htlc.channel.id}")
+     )
+
+    // The simulation environment makes the assumption that HTLC updates are atomic for the sake of simplicity,
+    // so if an HTLC was added without error on the other end of the channel, there should be no error here either.
+    channel.addRemoteHTLC(htlc.desc) match {
+      case Some(error) =>
+        throw new HTLCUpdateFailure(s"Error receiving HTLC ${htlc.id} on channel ${htlc.channel.id}: ${error}")
+      case None =>
+    }
+
+    ctx.advanceTimestamp(HTLCUpdateProcessingTime)
+  }
+
   def handleUpdateAddHTLC(sender: NodeID, message: UpdateAddHTLC)
                          (implicit ctx: NodeContext): Unit = {
     val UpdateAddHTLC(route) = message
     val (hop :: nextHops) = route.hops
 
-    val channel = channels.getOrElse(
-      hop.channel.id,
-      throw new HTLCUpdateFailure(s"Node ${id} cannot receive HTLC on unknown channel ${hop.channel.id}")
-    )
-
-    // The simulation environment makes the assumption that HTLC updates are atomic for the sake of simplicity,
-    // so if an HTLC was added without error on the other end of the channel, there should be no error here either.
-    ctx.advanceTimestamp(HTLCUpdateProcessingTime)
-    channel.addRemoteHTLC(hop.desc) match {
-      case Some(error) =>
-        throw new HTLCUpdateFailure(s"Error receiving HTLC ${hop.id} on channel ${hop.channel.id}: ${error}")
-      case None =>
-    }
+    addRemoteHTLC(hop)
 
     val backwardsRoute = BackwardRoutingPacket((hop.channel, hop.id) :: route.backwardRoute.hops)
-    nextHops match {
-      case nextHop :: restHops =>
-        // Intermediate hop in the circuit.
+    if (nextHops.isEmpty) {
+      processFinalHopHTLC(hop, route.finalHop, backwardsRoute)
+    } else {
+      processIntermediateHopHTLC(ForwardRoutingPacket(nextHops, route.finalHop, backwardsRoute))
+    }
+  }
+
+  protected def processIntermediateHopHTLC(route: ForwardRoutingPacket)
+                                          (implicit ctx: NodeContext): Unit = {
+    val (nextHop :: restHops) = route.hops
+
+    ctx.advanceTimestamp(HTLCUpdateProcessingTime)
+    val event = sendHTLC(nextHop) match {
+      case Left(error) =>
+        val prevHop = route.backwardRoute.hops.head
+        val prevChannelID = prevHop._1.id
+        val prevHTLCID = prevHop._2
+
+        val prevChannel = channels.getOrElse(prevChannelID,
+          throw new HTLCUpdateFailure(s"Node ${id} received HTLC on unknown channel ${prevChannelID}")
+        )
+        prevChannel.failRemoteHTLC(prevHTLCID).left.foreach(error => throw new HTLCUpdateFailure(
+          s"Error failing newly added HTLC ${prevHTLCID} on channel ${prevChannelID}: $error"
+        ))
+        val failMsg = UpdateFailHTLC(route.backwardRoute, error, Some(nextHop.channel))
+        ctx.sendMessage(prevChannel.otherNode, failMsg)
+
+      case Right(nextHtlc) =>
+        logger.debug(
+          "msg" -> "Forwarding HTLC".toJson,
+          "htlcID" -> nextHtlc.id.toJson,
+          "channelID" -> nextHop.channelID.toJson,
+          "paymentID" -> nextHtlc.paymentID.toJson,
+        )
+        val newRoute = route.copy(hops = nextHtlc :: restHops)
+        ctx.sendMessage(nextHop.recipient, UpdateAddHTLC(newRoute))
+    }
+
+  }
+
+  protected def processFinalHopHTLC(incomingHTLC: HTLC, finalHop: FinalHop, backwardsRoute: BackwardRoutingPacket)
+                                   (implicit ctx: NodeContext): Unit = {
+    val channelID = incomingHTLC.channel.id
+    val channel = channels.getOrElse(channelID,
+      throw new HTLCUpdateFailure(s"Node ${id} received HTLC on unknown channel ${channelID}")
+    )
+
+    acceptHTLC(incomingHTLC, finalHop) match {
+      case Some(error) =>
         ctx.advanceTimestamp(HTLCUpdateProcessingTime)
-        val event = sendHTLC(nextHop) match {
-          case Left(error) =>
-            channel.failRemoteHTLC(hop.id).left.foreach(error => throw new HTLCUpdateFailure(
-              s"Error failing newly added HTLC ${hop.id} on channel ${hop.channel.id}: $error"
-            ))
-            val failMsg = UpdateFailHTLC(backwardsRoute, error, Some(nextHop.channel))
-            ctx.sendMessage(sender, failMsg)
+        channel.failRemoteHTLC(incomingHTLC.id).left.foreach(error => throw new HTLCUpdateFailure(
+          s"Error failing newly added HTLC ${incomingHTLC.id} on channel ${channelID}: $error"
+        ))
+        val failMsg = UpdateFailHTLC(backwardsRoute, error, None)
+        ctx.sendMessage(channel.otherNode, failMsg)
 
-          case Right(nextHtlc) =>
-            logger.debug(
-              "msg" -> "Forwarding HTLC".toJson,
-              "htlcID" -> nextHtlc.id.toJson,
-              "channelID" -> nextHop.channelID.toJson,
-              "paymentID" -> nextHtlc.paymentID.toJson,
-            )
-            val newRoute = ForwardRoutingPacket(nextHtlc :: restHops, route.finalHop, backwardsRoute)
-            ctx.sendMessage(nextHop.recipient, UpdateAddHTLC(newRoute))
-        }
-
-      case Nil =>
-        // Final hop in the circuit.
+      case None =>
         ctx.advanceTimestamp(HTLCUpdateProcessingTime)
-        acceptHTLC(hop, route.finalHop) match {
-          case Some(error) =>
-            channel.failRemoteHTLC(hop.id).left.foreach(error => throw new HTLCUpdateFailure(
-              s"Error failing newly added HTLC ${hop.id} on channel ${hop.channel.id}: $error"
-            ))
-            val failMsg = UpdateFailHTLC(backwardsRoute, error, None)
-            ctx.sendMessage(sender, failMsg)
-
-          case None =>
-            channel.fulfillRemoteHTLC(hop.id).left.foreach(error => throw new HTLCUpdateFailure(
-              s"Error fulfilling newly added HTLC ${hop.id} on channel ${hop.channel.id}: $error"
-            ))
-            ctx.sendMessage(sender, UpdateFulfillHTLC(backwardsRoute))
-        }
+        channel.fulfillRemoteHTLC(incomingHTLC.id).left.foreach(error => throw new HTLCUpdateFailure(
+          s"Error fulfilling newly added HTLC ${incomingHTLC.id} on channel ${channelID}: $error"
+        ))
+        ctx.sendMessage(channel.otherNode, UpdateFulfillHTLC(backwardsRoute))
     }
   }
 
@@ -337,6 +364,7 @@ class NodeActor(val id: NodeID,
 
     pendingPayments(paymentID) = pendingPayment
 
+    // TODO: Open direct channel if time since payment was created exceeds some threshold
     ctx.advanceTimestamp(RoutingTime)
     route(paymentInfo, pendingPayment.constraints, paymentIDKnown = true) match {
       // Attempt to send payment through the Lightning Network if a route is found.
@@ -496,7 +524,13 @@ class NodeActor(val id: NodeID,
       tries = pendingPayment.tries + 1,
       constraints = newConstraints,
     )
-    ctx.retryPayment(PaymentRetryDelay, newPendingPayment)
+    ctx.scheduleAction(PaymentRetryDelay, RetryPayment(newPendingPayment))
+  }
+
+  def handleAction(action: NodeAction)
+                  (implicit ctx: NodeContext): Unit = action match {
+    case RetryPayment(payment) => executePayment(payment)
+    case _ => ???
   }
 
   /** This algorithm is based off of LND's autopilot heuristic, which uses preferential attachment

@@ -1,6 +1,6 @@
 package edu.stanford.cs.lnsim
 
-import edu.stanford.cs.lnsim.node.NodeActor
+import edu.stanford.cs.lnsim.node.{NodeAction, NodeActor}
 
 package object events {
   sealed trait Base
@@ -27,11 +27,11 @@ package object events {
   case class ReceiveMessage(sender: NodeActor, recipient: NodeActor, message: Message) extends Base
   case class QueryNewPayment() extends Base
 
-  /** RetryPayment is scheduled by nodes that need to wait a certain amount of time before retrying
-    * a failed payment through a different route. These should only be scheduled by the node that
-    * attempted the payment.
+  /** Node actions are scheduled by nodes that need to wait a certain amount of time before taking
+    * some action such as retrying a failed payment. These should only be scheduled by the node that
+    * the action is intended for -- nodes cannot schedule actions for each other.
     */
-  case class RetryPayment(node: NodeActor, payment: PendingPayment) extends Base
+  case class ScheduledAction(node: NodeActor, action: NodeAction) extends Base
 
   /** OpenNewChannels signals to a node that it should open new channels with total capacity up to
     * a given amount. The node will decide for itself which channels to create, how many, and their

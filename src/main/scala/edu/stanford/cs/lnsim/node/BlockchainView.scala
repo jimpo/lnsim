@@ -11,4 +11,6 @@ class BlockchainView(private val nodeID: NodeID, private val blockchain: Blockch
   def subscribeChannelConfirmed(channelID: ChannelID, confirmations: BlockDelta): Boolean =
     blockchain.subscribeChannelConfirmed(nodeID, channelID, confirmations)
 
+  def subscribeAction(subscribeNumber: BlockNumber, action: NodeAction): Boolean =
+    blockchain.subscribeAction(subscribeNumber, nodeID, action)
 }
