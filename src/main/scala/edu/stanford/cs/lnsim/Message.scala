@@ -11,3 +11,4 @@ case class FundingCreated(channelID: ChannelID, acceptMsg: AcceptChannel) extend
 case class UpdateAddHTLC(route: ForwardRoutingPacket) extends Message
 case class UpdateFulfillHTLC(route: BackwardRoutingPacket) extends Message
 case class UpdateFailHTLC(route: BackwardRoutingPacket, error: RoutingError, channel: Option[Channel]) extends Message
+case class Shutdown(id: ChannelID) extends Message

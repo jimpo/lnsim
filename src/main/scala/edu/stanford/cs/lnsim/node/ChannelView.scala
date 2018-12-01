@@ -21,7 +21,9 @@ class ChannelView(val otherNode: NodeID,
   def transition(newStatus: Status.Value): Unit = {
     (status, newStatus) match {
       case (Status.Opening, Status.Active) |
-           (Status.Active, Status.Closing) =>
+           (Status.Active, Status.Disabled) |
+           (Status.Disabled, Status.Active) |
+           (_, Status.Closing) =>
         status = newStatus
 
       case _ =>
@@ -29,56 +31,50 @@ class ChannelView(val otherNode: NodeID,
     }
   }
 
-  def addLocalHTLC(htlc: HTLC.Desc): Option[Error.Value] = checkStatus().orElse(
-    ourSide.addHTLC(htlc, theirParams)
-  )
-  def addRemoteHTLC(htlc: HTLC.Desc): Option[Error.Value] = checkStatus().orElse(
+  def addLocalHTLC(htlc: HTLC.Desc): Option[Error.Value] = status match {
+    case Status.Active => ourSide.addHTLC (htlc, theirParams)
+    case _ => Some(Error.Inactive)
+  }
+  def addRemoteHTLC(htlc: HTLC.Desc): Option[Error.Value] =
     theirSide.addHTLC(htlc, ourParams)
-  )
 
-  def failLocalHTLC(id: HTLCID): Either[Error.Value, HTLC.Desc] = checkStatus().toLeft(()).flatMap(_ =>
+  def failLocalHTLC(id: HTLCID): Either[Error.Value, HTLC.Desc] =
     ourSide.removeHTLC(id) match {
       case Some(htlc) =>
         ourSide.balance += htlc.amount
         Right(htlc)
       case None => Left(Error.IncorrectHTLCID)
     }
-  )
-  def failRemoteHTLC(id: HTLCID): Either[Error.Value, HTLC.Desc] = checkStatus().toLeft(()).flatMap(_ =>
+  def failRemoteHTLC(id: HTLCID): Either[Error.Value, HTLC.Desc] =
     theirSide.removeHTLC(id) match {
       case Some(htlc) =>
         theirSide.balance += htlc.amount
         Right(htlc)
       case None => Left(Error.IncorrectHTLCID)
     }
-  )
 
-  def fulfillLocalHTLC(id: HTLCID): Either[Error.Value, HTLC.Desc] = checkStatus().toLeft(()).flatMap(_ =>
+  def fulfillLocalHTLC(id: HTLCID): Either[Error.Value, HTLC.Desc] =
     ourSide.removeHTLC(id) match {
       case Some(htlc) =>
         theirSide.balance += htlc.amount
         Right(htlc)
       case None => Left(Error.IncorrectHTLCID)
     }
-  )
-  def fulfillRemoteHTLC(id: HTLCID): Either[Error.Value, HTLC.Desc] = checkStatus().toLeft(()).flatMap(_ =>
+  def fulfillRemoteHTLC(id: HTLCID): Either[Error.Value, HTLC.Desc] =
     theirSide.removeHTLC(id) match {
       case Some(htlc) =>
         ourSide.balance += htlc.amount
         Right(htlc)
       case None => Left(Error.IncorrectHTLCID)
     }
-  )
 
   def ourNextHTLCID: HTLCID = ourSide.nextHTLCID
 
   def ourAvailableBalance: Value = ourSide.availableBalance(theirParams)
   def theirAvailableBalance: Value = theirSide.availableBalance(ourParams)
 
-  private def checkStatus(): Option[ChannelView.Error.Value] = status match {
-    case Status.Active => None
-    case _ => Some(Error.Inactive)
-  }
+  def isClosing: Boolean = status == Status.Closing
+  def isClosed: Boolean = isClosing && ourSide.htlcsEmpty && theirSide.htlcsEmpty
 }
 
 object ChannelView {
@@ -123,6 +119,8 @@ object ChannelView {
     // TODO: Transaction weight/total fee check
     def availableBalance(otherParams: ChannelParams): Value = balance - otherParams.requiredReserve
 
+    def htlcsEmpty: Boolean = htlcs.isEmpty
+
     def nextHTLCID: HTLCID = _nextHTLCID
     private def incHTLCID(): Unit = _nextHTLCID += 1
   }
@@ -135,6 +133,10 @@ object ChannelView {
 
   object Status extends Enumeration {
     type Error = Value
+
+    /** Opening/Closing/Disabled: No new local HTLCs may be added.
+      * Active: New HTLCs may be added.
+      */
     val Opening, Active, Disabled, Closing = Value
   }
 }

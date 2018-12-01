@@ -8,7 +8,7 @@ import scala.collection.mutable
 import spray.json._
 import spray.json.DefaultJsonProtocol._
 
-class Blockchain(val blockInterval: TimeDelta) extends StructuredLogging {
+class Blockchain(val blockInterval: TimeDelta, val feePerWeight: Value) extends StructuredLogging {
   import Blockchain._
 
   private var _blockNumber: BlockNumber = 0

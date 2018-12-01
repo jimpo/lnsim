@@ -22,7 +22,9 @@ class NodeActor(val id: NodeID,
   private val channels: mutable.Map[ChannelID, ChannelView] = mutable.HashMap.empty
   private val pendingPayments: mutable.Map[PaymentID, PendingPayment] = mutable.Map.empty
 
-  def meanNetworkLatency: TimeDelta = 1000
+  def meanNetworkLatency: TimeDelta = 100
+
+  protected def lookupChannel(channelID: ChannelID): Option[ChannelView] = channels.get(channelID)
 
   def channelOpen(channelID: ChannelID,
                   otherNode: NodeID,
@@ -40,7 +42,8 @@ class NodeActor(val id: NodeID,
       "channelID" -> channelID.toJson,
       "thisNode" -> id.toJson,
       "otherNode" -> otherNode.toJson,
-      "capacity" -> (localBalance + remoteBalance).toJson
+      "capacity" -> (localBalance + remoteBalance).toJson,
+      "fee" -> (params.channelOpenWeight * blockchain.feePerWeight).toJson,
     )
     channels(channelID) = new ChannelView(otherNode, localBalance, remoteBalance, localParams, remoteParams)
     blockchain.subscribeChannelConfirmed(channelID, requiredConfirmations)
@@ -48,7 +51,7 @@ class NodeActor(val id: NodeID,
 
   def handleChannelOpenedOnChain(channelID: ChannelID)
                                 (implicit ctx: NodeContext): Unit = {
-    channels.get(channelID) match {
+    lookupChannel(channelID) match {
       case Some(channelView) =>
         channelView.transition(ChannelView.Status.Active)
         val channel = channelUpdate(
@@ -68,9 +71,9 @@ class NodeActor(val id: NodeID,
 
   protected def addRemoteHTLC(htlc: HTLC)
                            (implicit ctx: NodeContext): Unit = {
-     val channel = channels.getOrElse(htlc.channel.id,
-       throw new HTLCUpdateFailure(s"Node ${id} cannot receive HTLC on unknown channel ${htlc.channel.id}")
-     )
+     val channel = lookupChannel(htlc.channel.id)
+       .getOrElse(throw new HTLCUpdateFailure(
+         s"Node ${id} cannot receive HTLC on unknown channel ${htlc.channel.id}"))
 
     // The simulation environment makes the assumption that HTLC updates are atomic for the sake of simplicity,
     // so if an HTLC was added without error on the other end of the channel, there should be no error here either.
@@ -109,9 +112,10 @@ class NodeActor(val id: NodeID,
         val prevChannelID = prevHop._1.id
         val prevHTLCID = prevHop._2
 
-        val prevChannel = channels.getOrElse(prevChannelID,
-          throw new HTLCUpdateFailure(s"Node ${id} received HTLC on unknown channel ${prevChannelID}")
-        )
+        val prevChannel = lookupChannel(prevChannelID)
+          .getOrElse(throw new HTLCUpdateFailure(
+            s"Node ${id} received HTLC on unknown channel ${prevChannelID}"))
+
         prevChannel.failRemoteHTLC(prevHTLCID).left.foreach(error => throw new HTLCUpdateFailure(
           s"Error failing newly added HTLC ${prevHTLCID} on channel ${prevChannelID}: $error"
         ))
@@ -396,6 +400,40 @@ class NodeActor(val id: NodeID,
     }
   }
 
+  def handleShutdown(sender: NodeID, message: Shutdown)
+                    (implicit ctx: NodeContext): Unit = {
+    val Shutdown(channelID) = message
+    val channel = lookupChannel(channelID)
+      .getOrElse(throw new MisbehavingNodeException(
+        s"Node $sender attempted to close unknown channel $channelID"))
+
+    if (channel.otherNode != sender) {
+      throw new MisbehavingNodeException(
+        s"Node $sender attempted to close channel $channelID that it is not a party of")
+    }
+
+    if (!channel.isClosing) {
+      channel.transition(ChannelView.Status.Closing)
+      graphView.removeChannel(channelID)
+      ctx.sendMessage(sender, message)
+
+      checkChannelClosed(channelID, channel)
+    }
+  }
+
+  private def checkChannelClosed(channelID: ChannelID, channel: ChannelView): Unit = {
+    if (channel.isClosed) {
+      channels.remove(channelID)
+
+      logger.info(
+        "msg" -> "Channel closed".toJson,
+        "node" -> id.toJson,
+        "channel" -> channelID.toJson,
+        "finalBalance" -> channel.ourAvailableBalance.toJson,
+      )
+    }
+  }
+
   private def initiateChannelOpen(nodeID: NodeID, capacity: Value, pushAmount: Value)
                                  (implicit ctx: NodeContext): ChannelID = {
     val channelID = Util.randomUUID()
@@ -403,6 +441,25 @@ class NodeActor(val id: NodeID,
     val openMsg = OpenChannel(channelID, capacity, pushAmount, channelParams)
     ctx.sendMessage(nodeID, openMsg)
     channelID
+  }
+
+  private def initiateChannelClose(channelID: ChannelID)
+                                  (implicit ctx: NodeContext): Unit = {
+    val channel = lookupChannel(channelID)
+      .getOrElse(throw new AssertionError(
+        s"Node $id attempted to close unknown channel $channelID"))
+
+    logger.debug(
+      "msg" -> "Initiating channel close".toJson,
+      "node" -> id.toJson,
+      "channel" -> channelID.toJson,
+    )
+
+    // Do not transition immediately to Closing, which indicates that the other party in the
+    // channel is aware that the channel is closing. Just disabled the channel and wait for the
+    // shutdown message send back.
+    channel.transition(ChannelView.Status.Disabled)
+    ctx.sendMessage(channel.otherNode, Shutdown(channelID))
   }
 
   private def sendHTLC(htlc: HTLC): Either[RoutingError, HTLC] = {
@@ -563,13 +620,15 @@ class NodeActor(val id: NodeID,
       nodeWeights(i) = (nodeID, weight + nodeWeights(i - 1)._2)
     }
 
+    val channelOpenFee = params.channelOpenWeight * blockchain.feePerWeight
+
     var remainingBudget = budget
-    while (remainingBudget >= params.autoPilotMinChannelSize) {
+    while (remainingBudget >= params.autoPilotMinChannelSize + channelOpenFee) {
       val nodeID = Util.sampleCMF(nodeWeights)
       val capacity = Math.min(remainingBudget, params.autoPilotMaxChannelSize)
 
       initiateChannelOpen(nodeID, capacity, pushAmount = 0)
-      remainingBudget -= capacity
+      remainingBudget -= capacity + channelOpenFee
     }
   }
 }
@@ -596,7 +655,8 @@ object NodeActor {
                     feeBase: Value,
                     feeProportionalMillionths: Long,
                     autoPilotMinChannelSize: Value,
-                    autoPilotMaxChannelSize: Value) {
+                    autoPilotMaxChannelSize: Value,
+                    channelOpenWeight: Int) {
 
     def channelParams(capacity: Value): ChannelParams =
       ChannelParams(

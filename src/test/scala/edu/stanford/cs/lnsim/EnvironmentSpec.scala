@@ -5,8 +5,8 @@ import org.scalatest.{BeforeAndAfter, FunSpec, Matchers, OneInstancePerTest}
 
 class EnvironmentSpec extends FunSpec with OneInstancePerTest with BeforeAndAfter with Matchers {
   describe("An Environment") {
-    val blockchain = new Blockchain(10 * 60 * 1000)
-    val randomGraphBuilder = new RandomGraphBuilder(10, 1, blockchain)
+    val blockchain = new Blockchain(Config.DefaultBlockInterval, Config.DefaultFeePerWeight)
+    val randomGraphBuilder = new GraphBuilder(10, 1, blockchain)
     val env = new Environment(randomGraphBuilder.build(), blockchain)
 
     describe("when processing NewBlock events") {

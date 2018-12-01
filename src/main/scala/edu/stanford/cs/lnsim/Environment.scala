@@ -70,6 +70,7 @@ class Environment(private val nodeSeq: Seq[NodeActor],
           case message @ UpdateAddHTLC(_) => recipient.handleUpdateAddHTLC(sender.id, message)
           case message @ UpdateFulfillHTLC(_) => recipient.handleUpdateFulfillHTLC(sender.id, message)
           case message @ UpdateFailHTLC( _, _, _) => recipient.handleUpdateFailHTLC(sender.id, message)
+          case message @ Shutdown( _) => recipient.handleShutdown(sender.id, message)
         }
 
       case events.QueryNewPayment() =>

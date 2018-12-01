@@ -5,6 +5,8 @@ import edu.stanford.cs.lnsim._
 class BlockchainView(private val nodeID: NodeID, private val blockchain: Blockchain) {
   def blockNumber: BlockNumber = blockchain.blockNumber
 
+  def feePerWeight: Value = blockchain.feePerWeight
+
   def newFundingTransaction(channelID: ChannelID): Unit =
     blockchain.newFundingTransaction(channelID)
 

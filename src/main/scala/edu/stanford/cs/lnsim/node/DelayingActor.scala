@@ -30,16 +30,36 @@ class DelayingActor(id: NodeID,
       val releaseNumber = hop.expiry - ReleaseHTLCDelta - blockchain.blockNumber
       val newRoute = ForwardRoutingPacket(nextHops, route.finalHop, backwardsRoute)
 
-      if (!blockchain.subscribeAction(releaseNumber, ForwardHTLC(newRoute))) {
-        // If we failed to register the subscription, just take the action immediately.
+      if (!blockchain.subscribeAction(releaseNumber, FailForwardHTLC(newRoute))) {
+        // If we failed to register the subscription, just forward it normally.
         processIntermediateHopHTLC(newRoute)
       }
     }
   }
 
   override def handleAction(action: NodeAction)(implicit ctx: NodeContext): Unit = action match {
-    case ForwardHTLC(route) => processIntermediateHopHTLC(route)
+    case FailForwardHTLC(route) => failForwardHTLC(route)
     case _ => super.handleAction(action)
+  }
+
+  private def failForwardHTLC(route: ForwardRoutingPacket)
+                             (implicit ctx: NodeContext): Unit = {
+    val nextHop = route.hops.head
+    val prevHop = route.backwardRoute.hops.head
+    val prevChannelID = prevHop._1.id
+    val prevHTLCID = prevHop._2
+
+    val prevChannel = lookupChannel(prevChannelID)
+      .getOrElse(throw new HTLCUpdateFailure(
+        s"Node ${id} received HTLC on unknown channel ${prevChannelID}"))
+
+    prevChannel.failRemoteHTLC(prevHTLCID).left.foreach(error => throw new HTLCUpdateFailure(
+      s"Error failing newly added HTLC ${prevHTLCID} on channel ${prevChannelID}: $error"
+    ))
+
+    val error = TemporaryChannelFailure
+    val failMsg = UpdateFailHTLC(route.backwardRoute, error, Some(nextHop.channel))
+    ctx.sendMessage(prevChannel.otherNode, failMsg)
   }
 }
 

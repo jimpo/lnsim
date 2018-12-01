@@ -37,7 +37,7 @@ class NetworkGraph extends StructuredLogging {
         if (!((node1 == channel.source && node2 == channel.target) ||
           (node2 == channel.source && node1 == channel.target))) {
           throw new Exception(
-            s"""Cannot update hannel ${channel.id} endpoints from ($node1, $node2) to
+            s"""Cannot update channel ${channel.id} endpoints from ($node1, $node2) to
                |(${channel.source}, ${channel.target})""".stripMargin
           )
         }
