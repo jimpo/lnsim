@@ -32,7 +32,7 @@ class ChannelView(val otherNode: NodeID,
   }
 
   def addLocalHTLC(htlc: HTLC.Desc): Option[Error.Value] = status match {
-    case Status.Active => ourSide.addHTLC (htlc, theirParams)
+    case Status.Active => ourSide.addHTLC(htlc, theirParams)
     case _ => Some(Error.Inactive)
   }
   def addRemoteHTLC(htlc: HTLC.Desc): Option[Error.Value] =

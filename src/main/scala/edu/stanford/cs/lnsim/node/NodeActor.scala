@@ -137,7 +137,6 @@ class NodeActor(val id: NodeID,
         val newRoute = route.copy(hops = nextHtlc :: restHops)
         ctx.sendMessage(nextHop.recipient, UpdateAddHTLC(newRoute))
     }
-
   }
 
   protected def processFinalHopHTLC(incomingHTLC: HTLC, finalHop: FinalHop, backwardsRoute: BackwardRoutingPacket)
@@ -483,6 +482,11 @@ class NodeActor(val id: NodeID,
   }
 
   private def sendHTLC(htlc: HTLC): Either[RoutingError, HTLC] = {
+    logger.debug(
+      "msg" -> "Send HTLC".toJson,
+      "node" -> id.toJson,
+      "channel" -> htlc.channelID.toJson,
+    )
     channels.get(htlc.channel.id) match {
       case Some(channel) =>
         // TODO: Check CLTV delta + fee rate against channel update params
