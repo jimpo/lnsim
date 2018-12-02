@@ -70,7 +70,7 @@ package object lnsim {
     * Description of a Lightning Network payment.
     *
     * @param sender The node sending the payment.
-    * @param recipient The node receiving the payment.
+    * @param recipientID The node receiving the payment.
     * @param amount The amount of the payment.
     * @param finalExpiryDelta The minimum expiry delta at the final hop.
     * @param paymentID The equivalent of a payment hash in the simulation environment.
@@ -84,9 +84,9 @@ package object lnsim {
   /**
     * A complete routing packet that is sent through the circuit.
     *
-    * @param forwardHops Routing info for each hop forwards along the route.
+    * @param hops Routing info for each hop forwards along the route.
     * @param finalHop Routing info on the final hop of the route.
-    * @param backwardHops Routing info for each hop backwards along the route.
+    * @param backwardRoute Routing info for each hop backwards along the route.
     */
   case class ForwardRoutingPacket(hops: List[HTLC],
                                   finalHop: FinalHop,
@@ -118,6 +118,10 @@ package object lnsim {
     * @param msg Message describing the error.
     */
   class MisbehavingNodeException(msg: String) extends Exception(msg)
+
+  /** This exception is thrown if the simulation specification is invalid.
+    */
+  class InvalidSpecError(msg: String) extends Exception(msg)
 
   /**
     * This exception is thrown if an unrecoverable error or an error that violations simulation

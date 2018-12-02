@@ -3,6 +3,7 @@ package edu.stanford.cs.lnsim
 import scopt.OptionParser
 
 case class Config(randomSeed: Option[Int] = None,
+                  specFileName: Option[String] = None,
                   blockInterval: Int = Config.DefaultBlockInterval,
                   duration: Int = Config.DefaultDuration,
                   feePerWeight: Value = Config.DefaultFeePerWeight)
@@ -16,6 +17,11 @@ object Config {
     head("lnsim", "0.0.1")
 
     help("help")
+
+    opt[String]("spec-file")
+      .required()
+      .action((fileName, c) => c.copy(specFileName = Some(fileName)))
+      .text("path to JSON specification file")
 
     opt[Int]("seed")
       .action((seed, c) => c.copy(randomSeed = Some(seed)))

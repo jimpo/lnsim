@@ -9,14 +9,25 @@ import edu.stanford.cs.lnsim.node.{NodeAction, NodeActor, NodeContext}
 
 import scala.util.Random
 
-class Environment(private val nodeSeq: Seq[NodeActor],
+class Environment(private val nodes: Map[NodeID, NodeActor],
+                  private var initialEvents: Seq[(TimeDelta, events.Base)],
                   private val blockchain: Blockchain) extends des.Environment with StructuredLogging {
 
   override type Event = events.Base
 
-  private val nodes: Map[NodeID, NodeActor] = nodeSeq.map(node => node.id -> node).toMap
+  def this(nodeSeq: Seq[NodeActor],
+           initialEvents: Seq[(TimeDelta, events.Base)],
+           blockchain: Blockchain) {
+    this(nodeSeq.map(node => node.id -> node).toMap, initialEvents, blockchain)
+  }
 
-  override def initialEvent(): Event = events.Start()
+  def node(nodeID: NodeID): Option[NodeActor] = nodes.get(nodeID)
+
+  override def initialEvent(): Event = {
+    val event = events.Start(initialEvents)
+    initialEvents = Seq()
+    event
+  }
 
   override def processEvent(event: Event,
                             timestamp: Timestamp,
@@ -30,10 +41,10 @@ class Environment(private val nodeSeq: Seq[NodeActor],
     )
 
     event match {
-      case events.Start() =>
+      case events.Start(newEvents) =>
         scheduleEvent(blockchain.nextBlockTime(), events.NewBlock(1))
-        for (node <- nodes.valuesIterator) {
-          scheduleEvent(0, events.QueryNewPayment())
+        for ((delay, event) <- newEvents) {
+          scheduleEvent(delay, event)
         }
 
       case events.NewBlock(number) =>
@@ -71,37 +82,6 @@ class Environment(private val nodeSeq: Seq[NodeActor],
           case message @ UpdateFulfillHTLC(_) => recipient.handleUpdateFulfillHTLC(sender.id, message)
           case message @ UpdateFailHTLC( _, _, _) => recipient.handleUpdateFailHTLC(sender.id, message)
           case message @ Shutdown( _) => recipient.handleShutdown(sender.id, message)
-        }
-
-      case events.QueryNewPayment() =>
-
-        val senderIdx = Random.nextInt(nodes.size)
-        val sender = nodes.valuesIterator.drop(senderIdx).next()
-
-        val recipientIdx = Random.nextInt(nodes.size)
-        val recipient = nodes.valuesIterator.drop(recipientIdx).next()
-        if (sender != recipient) {
-          val paymentInfo = PaymentInfo(
-            sender = sender,
-            recipientID = recipient.id,
-            amount = 1000,
-            finalExpiryDelta = recipient.params.finalExpiryDelta,
-            paymentID = Util.randomUUID()
-          )
-
-          logger.info(
-            "msg" -> "Generating new payment".toJson,
-            "paymentInfo" -> paymentInfo.toJson
-          )
-          scheduleEvent(0, events.NewPayment(paymentInfo))
-
-          // Return the time delay until the node should next be queried to initiate new payments. This
-          // is a lower bound on the next time a payment may be initiated by this node.
-          //
-          // The naive strategy implemented to send payments by a Poisson process with expected time
-          // 10 minutes.
-          val nextPaymentQuery = Util.drawExponential(10 * 60 * 1000)
-          scheduleEvent(nextPaymentQuery, events.QueryNewPayment())
         }
 
       case events.ScheduledAction(node, action) =>

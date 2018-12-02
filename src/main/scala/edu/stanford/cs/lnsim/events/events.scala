@@ -1,5 +1,6 @@
 package edu.stanford.cs.lnsim
 
+import edu.stanford.cs.lnsim.des.TimeDelta
 import edu.stanford.cs.lnsim.node.{NodeAction, NodeActor}
 
 package object events {
@@ -8,7 +9,7 @@ package object events {
   /** Start is fired once when the simulation begins. The Environment handles this event by
     * initializing itself.
     */
-  case class Start() extends Base
+  case class Start(initialEvents: Seq[(TimeDelta, Base)]) extends Base
 
   /** NewBlock is fired when a new block is discovered. This is handled by registering the new
     * block with the blockchain, and handling any on-chain events that now confirmed, such as
@@ -25,7 +26,6 @@ package object events {
     * another.
     */
   case class ReceiveMessage(sender: NodeActor, recipient: NodeActor, message: Message) extends Base
-  case class QueryNewPayment() extends Base
 
   /** Node actions are scheduled by nodes that need to wait a certain amount of time before taking
     * some action such as retrying a failed payment. These should only be scheduled by the node that

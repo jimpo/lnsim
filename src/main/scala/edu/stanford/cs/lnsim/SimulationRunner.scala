@@ -1,9 +1,14 @@
 package edu.stanford.cs.lnsim
 
 import edu.stanford.cs.lnsim.des.{Simulation, secondsToTimeDelta}
+import edu.stanford.cs.lnsim.spec.SimulationSpec
 import sun.misc.Signal
 
+import scala.io.Source
 import scala.util.Random
+
+import spray.json._
+import JSONProtocol._
 
 object SimulationRunner extends App {
   Config.parser.parse(args, Config()) match {
@@ -13,19 +18,18 @@ object SimulationRunner extends App {
         case None =>
       }
 
+      val specFileContents = Source.fromFile(config.specFileName.get).getLines.mkString
+      val spec = specFileContents.parseJson.convertTo[SimulationSpec]
+
       val blockchain = new Blockchain(
         blockInterval = secondsToTimeDelta(config.blockInterval),
         feePerWeight = config.feePerWeight,
       )
-      val graphBuilder = new GraphBuilder(
-        numNodes = 100,
-        avgChannelsPerNode = 2,
+      val graphBuilder = new EnvBuilder(
+        spec = spec,
         blockchain = blockchain
       )
-      val env = new Environment(
-        nodeSeq = graphBuilder.build(),
-        blockchain = blockchain
-      )
+      val env = graphBuilder.build()
       val simulation = new Simulation[Environment](env, secondsToTimeDelta(config.duration))
 
       Signal.handle(new Signal("INT"), _ => simulation.stop())

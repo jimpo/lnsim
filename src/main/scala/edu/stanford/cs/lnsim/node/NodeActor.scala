@@ -21,6 +21,7 @@ class NodeActor(val id: NodeID,
 
   private val channels: mutable.Map[ChannelID, ChannelView] = mutable.HashMap.empty
   private val pendingPayments: mutable.Map[PaymentID, PendingPayment] = mutable.Map.empty
+  private val onChainPayments: mutable.Map[ChannelID, PaymentID] = mutable.Map.empty
 
   def meanNetworkLatency: TimeDelta = 100
 
@@ -63,6 +64,10 @@ class NodeActor(val id: NodeID,
           theirChannelParams = channelView.theirParams
         )
         graphView.updateChannel(channel)
+
+        for (paymentID <- onChainPayments.remove(channelID)) {
+          completePayment(paymentID, ctx.timestamp, onChain = true)
+        }
 
       case None =>
         throw new AssertionError(s"Cannot handle ChannelOpened for unknown channel $channelID")
@@ -236,7 +241,7 @@ class NodeActor(val id: NodeID,
 
       case Nil =>
         // Payment confirmation made it back to the original sender.
-        completePayment(htlc.paymentID, ctx.timestamp)
+        completePayment(htlc.paymentID, ctx.timestamp, onChain = false)
     }
   }
 
@@ -367,9 +372,17 @@ class NodeActor(val id: NodeID,
 
     pendingPayments(paymentID) = pendingPayment
 
-    // TODO: Open direct channel if time since payment was created exceeds some threshold
-    ctx.advanceTimestamp(RoutingTime)
-    route(paymentInfo, pendingPayment.constraints, paymentIDKnown = true) match {
+    val paymentElapsedTime = ctx.timestamp - pendingPayment.timestamp
+    val maybeRoutingPacket = if (paymentElapsedTime < params.offChainPaymentTimeout) {
+      ctx.advanceTimestamp(RoutingTime)
+      route(paymentInfo, pendingPayment.constraints, paymentIDKnown = true)
+    } else {
+      // If it has been too long since the payment was first attempted, stop trying to deliver it
+      // off-chain and open a direct channel.
+      None
+    }
+
+    maybeRoutingPacket match {
       // Attempt to send payment through the Lightning Network if a route is found.
       case Some(routingPacket) =>
         val (firstHop :: restHops) = routingPacket.hops
@@ -390,7 +403,7 @@ class NodeActor(val id: NodeID,
       // Otherwise, open a channel directly to the peer
       case None =>
         val capacity = newChannelCapacity(paymentInfo.recipientID, paymentInfo.amount)
-        val channelID = initiateChannelOpen(paymentInfo.recipientID, capacity, paymentInfo.amount)
+        val channelID = initiateChannelOpen(paymentInfo.recipientID, capacity, Some(pendingPayment))
         logger.debug(
           "msg" -> "Attempting to complete payment by opening new direct channel".toJson,
           "channelID" -> channelID.toJson,
@@ -433,11 +446,19 @@ class NodeActor(val id: NodeID,
     }
   }
 
-  private def initiateChannelOpen(nodeID: NodeID, capacity: Value, pushAmount: Value)
+  private def initiateChannelOpen(nodeID: NodeID,
+                                  capacity: Value,
+                                  maybePendingPayment: Option[PendingPayment])
                                  (implicit ctx: NodeContext): ChannelID = {
     val channelID = Util.randomUUID()
     val channelParams = params.channelParams(capacity)
+    val pushAmount = maybePendingPayment.map(_.info.amount).getOrElse(0L)
     val openMsg = OpenChannel(channelID, capacity, pushAmount, channelParams)
+
+    // Register payment to be completed when channel is open.
+    for (pendingPayment <- maybePendingPayment) {
+      onChainPayments(channelID) = pendingPayment.info.paymentID
+    }
     ctx.sendMessage(nodeID, openMsg)
     channelID
   }
@@ -483,7 +504,7 @@ class NodeActor(val id: NodeID,
   }
 
   private def newChannelCapacity(_node: NodeID, initialPaymentAmount: Value): Value =
-    initialPaymentAmount * CapacityMultiplier
+    initialPaymentAmount * params.capacityMultiplier
 
   private def channelUpdate(channelID: ChannelID,
                             otherNodeID: NodeID,
@@ -505,13 +526,14 @@ class NodeActor(val id: NodeID,
     )
   }
 
-  private def completePayment(paymentID: PaymentID, timestamp: Timestamp): Unit = {
+  private def completePayment(paymentID: PaymentID, timestamp: Timestamp, onChain: Boolean): Unit = {
     val pendingPayment = pendingPayments.remove(paymentID)
       .getOrElse(throw new AssertionError(s"Unknown payment $paymentID failed"))
 
     logger.info(
       "msg" -> "Payment completed".toJson,
       "paymentID" -> paymentID.toJson,
+      "onChain" -> onChain.toJson,
       "tries" -> pendingPayment.tries.toJson,
       "totalTime" -> (timestamp - pendingPayment.timestamp).toJson,
     )
@@ -626,7 +648,7 @@ class NodeActor(val id: NodeID,
       val nodeID = Util.sampleCMF(nodeWeights)
       val capacity = Math.min(remainingBudget, params.autoPilotMaxChannelSize)
 
-      initiateChannelOpen(nodeID, capacity, pushAmount = 0)
+      initiateChannelOpen(nodeID, capacity, maybePendingPayment = None)
       remainingBudget -= capacity + channelOpenFee
     }
   }
@@ -640,7 +662,6 @@ object NodeActor {
   val GenerateFundingTransactionTime: TimeDelta = 100
   val InsignificantTimeDelta: TimeDelta = 1
 
-  val CapacityMultiplier = 4
   val PaymentRetryDelay = 1000
 
   case class Params(reserveToFundingRatio: Double,
@@ -655,7 +676,9 @@ object NodeActor {
                     feeProportionalMillionths: Long,
                     autoPilotMinChannelSize: Value,
                     autoPilotMaxChannelSize: Value,
-                    channelOpenWeight: Int) {
+                    channelOpenWeight: Int,
+                    capacityMultiplier: Int,
+                    offChainPaymentTimeout: TimeDelta) {
 
     def channelParams(capacity: Value): ChannelParams =
       ChannelParams(

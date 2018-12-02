@@ -4,6 +4,7 @@ import java.util.UUID
 
 import edu.stanford.cs.lnsim.graph.Channel
 import edu.stanford.cs.lnsim.node.NodeActor
+import edu.stanford.cs.lnsim.spec.{NodeSpec, SimulationSpec, TransactionSpec}
 import spray.json._
 import spray.json.DefaultJsonProtocol._
 
@@ -14,7 +15,10 @@ object JSONProtocol {
   implicit object UUIDFormat extends JsonFormat[UUID] {
     override def write(uuid: UUID): JsValue = uuid.toString.toJson
 
-    override def read(json: JsValue): UUID = ???
+    override def read(json: JsValue): UUID = json match {
+      case JsString(s) => UUID.fromString(s)
+      case _ => throw new DeserializationException("UUID expected")
+    }
   }
 
   val ChannelUpdateFormat : RootJsonFormat[Channel] = jsonFormat10(Channel)
@@ -56,18 +60,16 @@ object JSONProtocol {
     }
   }
 
-  implicit val StartFormat: RootJsonFormat[events.Start] =
-    jsonFormat0(events.Start)
   implicit val NewBlockFormat: RootJsonFormat[events.NewBlock] =
     jsonFormat1(events.NewBlock)
   implicit val NewPaymentFormat: RootJsonFormat[events.NewPayment] =
     jsonFormat1(events.NewPayment)
-  implicit val QueryNewPaymentFormat: RootJsonFormat[events.QueryNewPayment] =
-    jsonFormat0(events.QueryNewPayment)
 
   implicit object EventFormat extends JsonWriter[events.Base] {
     override def write(event: events.Base): JsValue = event match {
-      case e @ events.Start() => StartFormat.write(e)
+      case e @ events.Start(_) => JsObject(
+        "name" -> "ReceiveMessage".toJson,
+      )
       case e @ events.NewBlock(_) => NewBlockFormat.write(e)
       case e @ events.NewPayment( _) => NewPaymentFormat.write(e)
       case events.ReceiveMessage(sender, recipient, message) => JsObject(
@@ -76,7 +78,6 @@ object JSONProtocol {
         "recipient" -> recipient.toJson,
         "message" -> message.toJson,
       )
-      case e @ events.QueryNewPayment() => QueryNewPaymentFormat.write(e)
       case e @ events.ScheduledAction(node, action) => JsObject(
         "name" -> "ScheduledAction".toJson,
         "node" -> node.id.toJson,
@@ -87,6 +88,51 @@ object JSONProtocol {
         "node" -> node.id.toJson,
         "budget" -> budget.toJson,
       )
+    }
+  }
+
+  implicit object NodeSpecFormat extends JsonReader[NodeSpec] {
+    override def read(json: JsValue): NodeSpec = {
+      json.asJsObject.getFields("id") match {
+        case Seq(id) =>
+          NodeSpec(id = id.convertTo[NodeID])
+        case _ => throw new DeserializationException("TransactionSpec expected")
+      }
+    }
+  }
+
+  implicit object TransactionSpecFormat extends JsonReader[TransactionSpec] {
+    override def read(json: JsValue): TransactionSpec = {
+      json.asJsObject.getFields("Timestamp", "Sender", "Recipient", "Amount", "ID") match {
+        case Seq(JsNumber(timestamp), sender, recipient, JsString(amountStr), paymentID) =>
+          var amount = BigDecimal(amountStr)
+          amount *= 5
+          amount /= BigDecimal("1000000000")
+          TransactionSpec(
+            timestamp = timestamp.toLongExact,
+            sender = sender.convertTo[NodeID],
+            recipient = recipient.convertTo[NodeID],
+            amount = amount.toLong,
+            paymentID = paymentID.convertTo[NodeID],
+          )
+        case _ => throw new DeserializationException(s"TransactionSpec expected, got $json")
+      }
+    }
+  }
+
+  implicit object SimulationSpecFormat extends JsonReader[SimulationSpec] {
+    override def read(json: JsValue): SimulationSpec = {
+      json.asJsObject.getFields("NodeIDs", "Transactions") match {
+        case Seq(JsArray(nodeIDs), JsArray(transactions)) =>
+          SimulationSpec(
+            nodes = nodeIDs.map(_.convertTo[NodeID]).map(NodeSpec(_)).toList,
+            transactions = transactions
+              .map(_.convertTo[TransactionSpec])
+              .filter(_.amount > 0)
+              .toList,
+          )
+        case _ => throw new DeserializationException("SimulationSpec expected")
+      }
     }
   }
 }
