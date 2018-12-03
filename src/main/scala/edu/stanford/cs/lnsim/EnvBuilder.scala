@@ -16,7 +16,7 @@ class EnvBuilder(private val spec: SimulationSpec,
 
   def build(): Environment = {
     val graph = new NetworkGraph()
-    val router = new MinimalFeeRouter(MaximumRoutingFee)
+    val router = new MinimalFeeRouter(MaximumRoutingFee, MaxRoutingHops)
     val output = new LoggingOutput()
 
     val params = NodeActor.Params(
@@ -109,6 +109,10 @@ object EnvBuilder {
     * Set to 0.0001 BTC.
     */
   val MaximumRoutingFee: Value = 10000000
+
+  /** Maximum number of hops allowed in a payment route. This is specified in BOLT 4.
+    */
+  val MaxRoutingHops: Int = 20
 
   /** Assume the weight of the funding transaction in BOLT 3: Appendix B test vectors, which is 928.
     */

@@ -1,6 +1,6 @@
 package edu.stanford.cs.lnsim.routing
 
-import edu.stanford.cs.lnsim.NodeID
+import edu.stanford.cs.lnsim.{ChannelID, NodeID}
 import edu.stanford.cs.lnsim.graph.Channel
 
 /**
@@ -8,7 +8,7 @@ import edu.stanford.cs.lnsim.graph.Channel
   * through a node's history of payment failures and successes.
   */
 class RouteConstraints private (private val ignoreNodes: Set[NodeID],
-                                private val ignoreChannels: Set[Channel]) {
+                                private val ignoreChannels: Set[(ChannelID, NodeID)]) {
   def this() = this(Set.empty, Set.empty)
 
   def +(other: RouteConstraints): RouteConstraints =
@@ -18,13 +18,13 @@ class RouteConstraints private (private val ignoreNodes: Set[NodeID],
     new RouteConstraints(ignoreNodes + nodeID, ignoreChannels)
 
   def banChannel(channel: Channel): RouteConstraints =
-    new RouteConstraints(ignoreNodes, ignoreChannels + channel)
+    new RouteConstraints(ignoreNodes, ignoreChannels + ((channel.id, channel.source)))
 
   def allowNode(nodeID: NodeID): Boolean = !ignoreNodes.contains(nodeID)
 
   def allowChannel(channel: Channel): Boolean = (
     allowNode(channel.source) &&
       allowNode(channel.target) &&
-      !ignoreChannels.contains(channel)
+      !ignoreChannels.contains((channel.id, channel.source))
     )
 }
