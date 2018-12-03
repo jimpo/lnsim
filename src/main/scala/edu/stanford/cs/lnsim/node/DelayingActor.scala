@@ -3,12 +3,15 @@ package edu.stanford.cs.lnsim.node
 import edu.stanford.cs.lnsim._
 import edu.stanford.cs.lnsim.routing.{NetworkGraphView, Router}
 
+import scala.util.Random
+
 /** DelayingActor implements an adversarial node that will withhold any HTLCs routed through it for
   * the maximum amount of time before failing them. If it is the final hop in a route, the node
   * will handle the HTLC normally and respond immediately.
   */
 class DelayingActor(id: NodeID,
                     params: NodeActor.Params,
+                    attackParams: DelayingActor.AttackParams,
                     output: ObservableOutput,
                     router: Router,
                     graphView: NetworkGraphView,
@@ -62,9 +65,27 @@ class DelayingActor(id: NodeID,
     val failMsg = UpdateFailHTLC(route.backwardRoute, error, Some(nextHop.channel))
     ctx.sendMessage(prevChannel.otherNode, failMsg)
   }
+
+  override def handleBootstrapEnd()(implicit ctx: NodeContext): Unit = {
+    val nodes = Random.shuffle(graphView.nodeIterator)
+
+    var numChannels = 0
+    for (target <- nodes) {
+      if (numChannels >= attackParams.numChannels) {
+        return
+      }
+      if (target.id != id) {
+        initiateChannelOpen(target.id, attackParams.channelCapacity, None)
+        numChannels += 1
+      }
+    }
+  }
 }
 
 object DelayingActor {
   // Number of blocks before HTLC expiry when HTLCs that are withheld are released.
   val ReleaseHTLCDelta: BlockDelta = 20
+
+  case class AttackParams(numChannels: Int,
+                          channelCapacity: Value)
 }

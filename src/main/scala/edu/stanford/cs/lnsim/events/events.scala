@@ -38,4 +38,11 @@ package object events {
     * capacities automatically based on its local network graph information.
     */
   case class OpenChannels(node: NodeActor, budget: Value) extends Base
+
+  /** BootstrapEnd signals the end of the bootstrap phase. The bootstrap phase is the period where
+    * all transaction activity is solely for the purpose of initializing the network graph and
+    * therefore not counted in network analysis metrics. When the bootstrap phase ends, attacking
+    * nodes come alive.
+    */
+  case class BootstrapEnd() extends Base
 }

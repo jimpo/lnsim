@@ -11,7 +11,13 @@ class EnvironmentSpec extends FunSpec with OneInstancePerTest with BeforeAndAfte
 
     describe("when processing NewBlock events") {
       it("registers blocks in order") {
-        val spec = SimulationSpec(nodes = List(), transactions = List())
+        val spec = SimulationSpec(
+          nodes = List(),
+          transactions = List(),
+          channelBudgets = List(),
+          startTime = 0,
+          endTime = 1000000,
+        )
         val env = new EnvBuilder(spec, blockchain).build()
 
         var newEvents: List[(TimeDelta, env.Event)] = Nil
@@ -45,6 +51,9 @@ class EnvironmentSpec extends FunSpec with OneInstancePerTest with BeforeAndAfte
           TransactionSpec(1, nodeIDs(0), nodeIDs(1), 10000, Util.randomUUID()),
           TransactionSpec(5, nodeIDs(1), nodeIDs(2), 20000, Util.randomUUID()),
         ),
+        channelBudgets = List(),
+        startTime = 0,
+        endTime = 1000000,
       )
       val env = new EnvBuilder(spec, blockchain).build()
 
@@ -87,6 +96,9 @@ class EnvironmentSpec extends FunSpec with OneInstancePerTest with BeforeAndAfte
       val spec = SimulationSpec(
         nodes = nodeIDs.map(NodeSpec(_)).toList,
         transactions = List(),
+        channelBudgets = List(),
+        startTime = 0,
+        endTime = 1000000,
       )
       val env = new EnvBuilder(spec, blockchain).build()
 

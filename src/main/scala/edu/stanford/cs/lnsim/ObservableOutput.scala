@@ -5,5 +5,6 @@ trait ObservableOutput {
                   initiatingNode: NodeID,
                   receivingNode: NodeID,
                   capacity: Value,
-                  fee: Value): Unit
+                  fee: Value,
+                  paymentID: Option[PaymentID]): Unit
 }

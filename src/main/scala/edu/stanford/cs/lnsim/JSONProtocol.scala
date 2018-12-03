@@ -4,7 +4,7 @@ import java.util.UUID
 
 import edu.stanford.cs.lnsim.graph.Channel
 import edu.stanford.cs.lnsim.node.NodeActor
-import edu.stanford.cs.lnsim.spec.{NodeSpec, SimulationSpec, TransactionSpec}
+import edu.stanford.cs.lnsim.spec.{ChannelBudgetSpec, NodeSpec, SimulationSpec, TransactionSpec}
 import spray.json._
 import spray.json.DefaultJsonProtocol._
 
@@ -88,6 +88,7 @@ object JSONProtocol {
         "node" -> node.id.toJson,
         "budget" -> budget.toJson,
       )
+      case e @ events.BootstrapEnd() => JsObject("name" -> "BoostrapEnd".toJson)
     }
   }
 
@@ -104,10 +105,7 @@ object JSONProtocol {
   implicit object TransactionSpecFormat extends JsonReader[TransactionSpec] {
     override def read(json: JsValue): TransactionSpec = {
       json.asJsObject.getFields("Timestamp", "Sender", "Recipient", "Amount", "ID") match {
-        case Seq(JsNumber(timestamp), sender, recipient, JsString(amountStr), paymentID) =>
-          var amount = BigDecimal(amountStr)
-          amount *= 5
-          amount /= BigDecimal("1000000000")
+        case Seq(JsNumber(timestamp), sender, recipient, JsNumber(amount), paymentID) =>
           TransactionSpec(
             timestamp = timestamp.toLongExact,
             sender = sender.convertTo[NodeID],
@@ -120,16 +118,30 @@ object JSONProtocol {
     }
   }
 
+  implicit object ChannelBudgetSpecFormat extends JsonReader[ChannelBudgetSpec] {
+    override def read(json: JsValue): ChannelBudgetSpec = {
+      json.asJsObject.getFields("Opener", "Time", "Amount") match {
+        case Seq(node, JsNumber(timestamp), JsNumber(amount)) =>
+          ChannelBudgetSpec(
+            node = node.convertTo[NodeID],
+            timestamp = timestamp.toLongExact,
+            amount = amount.toLongExact,
+          )
+        case _ => throw new DeserializationException(s"TransactionSpec expected, got $json")
+      }
+    }
+  }
+
   implicit object SimulationSpecFormat extends JsonReader[SimulationSpec] {
     override def read(json: JsValue): SimulationSpec = {
-      json.asJsObject.getFields("NodeIDs", "Transactions") match {
-        case Seq(JsArray(nodeIDs), JsArray(transactions)) =>
+      json.asJsObject.getFields("NodeIDs", "Transactions", "ChannelBudgets", "BootstrapEnd", "SimulationEnd") match {
+        case Seq(JsArray(nodeIDs), JsArray(transactions), JsArray(channelBudgets), JsNumber(startTime), JsNumber(endTime)) =>
           SimulationSpec(
             nodes = nodeIDs.map(_.convertTo[NodeID]).map(NodeSpec(_)).toList,
-            transactions = transactions
-              .map(_.convertTo[TransactionSpec])
-              .filter(_.amount > 0)
-              .toList,
+            transactions = transactions.map(_.convertTo[TransactionSpec]).toList,
+            channelBudgets = channelBudgets.map(_.convertTo[ChannelBudgetSpec]).toList,
+            startTime = startTime.toLongExact,
+            endTime = endTime.toLongExact,
           )
         case _ => throw new DeserializationException("SimulationSpec expected")
       }

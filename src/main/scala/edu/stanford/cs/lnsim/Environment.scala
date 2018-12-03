@@ -19,7 +19,7 @@ class Environment(private val nodes: Map[NodeID, NodeActor],
     * going over that connection will be delivered. This is used to ensure in-order delivery of
     * messages between nodes, which happen over a TCP connection on the real network.
     */
-  private val messageDeliveryTimes: mutable.Map[(NodeID, NodeID), Timestamp] = mutable.Map.empty
+  private val messageDeliveryTimes: mutable.Map[(NodeID, NodeID), Timestamp] = mutable.HashMap.empty
 
   def this(nodeSeq: Seq[NodeActor],
            initialEvents: Seq[(TimeDelta, events.Base)],
@@ -103,6 +103,12 @@ class Environment(private val nodes: Map[NodeID, NodeActor],
       case events.OpenChannels(node, budget) =>
         implicit val actions = new EnvNodeContext(timestamp, node, scheduleEvent)
         node.openNewChannels(budget)
+
+      case events.BootstrapEnd() =>
+        for (node <- nodes.valuesIterator) {
+          implicit val actions = new EnvNodeContext(timestamp, node, scheduleEvent)
+          node.handleBootstrapEnd()
+        }
     }
   }
 

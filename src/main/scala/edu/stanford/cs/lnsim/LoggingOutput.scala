@@ -11,7 +11,8 @@ class LoggingOutput extends ObservableOutput with StructuredLogging {
                            initiatingNode: NodeID,
                            receivingNode: NodeID,
                            capacity: Value,
-                           fee: Value): Unit = {
+                           fee: Value,
+                           paymentID: Option[PaymentID]): Unit = {
     logger.info(
       "msg" -> "Opening new channel".toJson,
       "channelID" -> channelID.toJson,
@@ -19,6 +20,7 @@ class LoggingOutput extends ObservableOutput with StructuredLogging {
       "receivingNode" -> receivingNode.toJson,
       "capacity" -> capacity.toJson,
       "fee" -> fee.toJson,
+      "paymentID" -> paymentID.toJson,
     )
   }
 }

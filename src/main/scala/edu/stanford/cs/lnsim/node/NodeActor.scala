@@ -21,8 +21,8 @@ class NodeActor(val id: NodeID,
   import NodeActor._
 
   private val channels: mutable.Map[ChannelID, ChannelView] = mutable.HashMap.empty
-  private val pendingPayments: mutable.Map[PaymentID, PendingPayment] = mutable.Map.empty
-  private val onChainPayments: mutable.Map[ChannelID, PaymentID] = mutable.Map.empty
+  private val pendingPayments: mutable.Map[PaymentID, PendingPayment] = mutable.HashMap.empty
+  private val onChainPayments: mutable.Map[ChannelID, PaymentID] = mutable.HashMap.empty
 
   def meanNetworkLatency: TimeDelta = 100
 
@@ -38,7 +38,6 @@ class NodeActor(val id: NodeID,
     if (channels.contains(channelID)) {
       throw new AssertionError(s"Channel $channelID has already been added to node $id")
     }
-
 
     channels(channelID) = new ChannelView(otherNode, localBalance, remoteBalance, localParams, remoteParams)
     blockchain.subscribeChannelConfirmed(channelID, requiredConfirmations)
@@ -441,10 +440,10 @@ class NodeActor(val id: NodeID,
     }
   }
 
-  private def initiateChannelOpen(nodeID: NodeID,
-                                  capacity: Value,
-                                  maybePendingPayment: Option[PendingPayment])
-                                 (implicit ctx: NodeContext): ChannelID = {
+  protected def initiateChannelOpen(nodeID: NodeID,
+                                    capacity: Value,
+                                    maybePendingPayment: Option[PendingPayment])
+                                   (implicit ctx: NodeContext): ChannelID = {
     val channelID = Util.randomUUID()
     val channelParams = params.channelParams(capacity)
     val pushAmount = maybePendingPayment.map(_.info.amount).getOrElse(0L)
@@ -456,6 +455,7 @@ class NodeActor(val id: NodeID,
       receivingNode = nodeID,
       capacity = capacity,
       fee = params.channelOpenWeight * blockchain.feePerWeight,
+      paymentID = maybePendingPayment.map(_.info.paymentID),
     )
 
     // Register payment to be completed when channel is open.
@@ -650,17 +650,25 @@ class NodeActor(val id: NodeID,
       nodeWeights(i) = (nodeID, weight + nodeWeights(i - 1)._2)
     }
 
+    val channelOpenAmount = Math.max(
+      budget / params.autoPilotNumChannels,
+      params.autoPilotMinChannelSize
+    )
     val channelOpenFee = params.channelOpenWeight * blockchain.feePerWeight
 
     var remainingBudget = budget
     while (remainingBudget >= params.autoPilotMinChannelSize + channelOpenFee) {
       val nodeID = Util.sampleCMF(nodeWeights)
-      val capacity = Math.min(remainingBudget, params.autoPilotMaxChannelSize)
+      if (nodeID != id) {
+        val capacity = Math.min(remainingBudget, channelOpenAmount)
 
-      initiateChannelOpen(nodeID, capacity, maybePendingPayment = None)
-      remainingBudget -= capacity + channelOpenFee
+        initiateChannelOpen(nodeID, capacity, maybePendingPayment = None)
+        remainingBudget -= capacity + channelOpenFee
+      }
     }
   }
+
+  def handleBootstrapEnd()(implicit ctx: NodeContext): Unit = {}
 }
 
 object NodeActor {
@@ -685,6 +693,7 @@ object NodeActor {
                     feeProportionalMillionths: Long,
                     autoPilotMinChannelSize: Value,
                     autoPilotMaxChannelSize: Value,
+                    autoPilotNumChannels: Int,
                     channelOpenWeight: Int,
                     capacityMultiplier: Int,
                     offChainPaymentTimeout: TimeDelta) {

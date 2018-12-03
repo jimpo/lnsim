@@ -15,9 +15,12 @@ class IntegrationSpec extends FunSpec with OneInstancePerTest with BeforeAndAfte
         transactions = List(
           TransactionSpec(1, nodeIDs(0), nodeIDs(1), 10000, Util.randomUUID()),
         ),
+        channelBudgets = List(),
+        startTime = 0,
+        endTime = secondsToTimeDelta(24 * 60 * 60),
       )
       val env = new EnvBuilder(spec, blockchain).build()
-      val simulation = new Simulation[Environment](env, secondsToTimeDelta(24 * 60 * 60))
+      val simulation = new Simulation[Environment](env, spec.endTime)
 
       simulation.run()
     }
