@@ -9,10 +9,11 @@ import edu.stanford.cs.lnsim.routing.{NetworkGraphView, Router}
   */
 class DelayingActor(id: NodeID,
                     params: NodeActor.Params,
+                    output: ObservableOutput,
                     router: Router,
                     graphView: NetworkGraphView,
                     blockchain: BlockchainView)
-  extends NodeActor(id, params, router, graphView, blockchain) {
+  extends NodeActor(id, params, output, router, graphView, blockchain) {
 
   import DelayingActor._
 

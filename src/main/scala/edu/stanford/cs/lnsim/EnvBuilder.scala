@@ -13,6 +13,7 @@ class EnvBuilder(private val spec: SimulationSpec,
   def build(): Environment = {
     val graph = new NetworkGraph()
     val router = new MinimalFeeRouter(MaximumRoutingFee)
+    val output = new LoggingOutput()
 
     val params = NodeActor.Params(
       EclairDefaults.ReserveToFundingRatio,
@@ -36,7 +37,7 @@ class EnvBuilder(private val spec: SimulationSpec,
     val nodes = for (nodeSpec <- spec.nodes) yield {
       val graphView = new NetworkGraphView(graph)
       val blockchainView = new BlockchainView(nodeSpec.id, blockchain)
-      new NodeActor(nodeSpec.id, params, router, graphView, blockchainView)
+      new NodeActor(nodeSpec.id, params, output, router, graphView, blockchainView)
     }
 
     val nodeMap = nodes.map(node => node.id -> node).toMap

@@ -19,7 +19,7 @@ class Blockchain(val blockInterval: TimeDelta, val feePerWeight: Value) extends 
     val events = onChainEvents.remove(blockNumber).getOrElse(Nil)
     incBlockNumber()
 
-    logger.info(
+    logger.debug(
       "msg" -> "New block arrived".toJson,
       "number" -> blockNumber.toJson,
     )

@@ -13,6 +13,7 @@ import scala.collection.mutable
 
 class NodeActor(val id: NodeID,
                 val params: NodeActor.Params,
+                private val output: ObservableOutput,
                 private val router: Router,
                 private val graphView: NetworkGraphView,
                 private val blockchain: BlockchainView) extends StructuredLogging {
@@ -38,14 +39,7 @@ class NodeActor(val id: NodeID,
       throw new AssertionError(s"Channel $channelID has already been added to node $id")
     }
 
-    logger.info(
-      "msg" -> "Opening new channel".toJson,
-      "channelID" -> channelID.toJson,
-      "thisNode" -> id.toJson,
-      "otherNode" -> otherNode.toJson,
-      "capacity" -> (localBalance + remoteBalance).toJson,
-      "fee" -> (params.channelOpenWeight * blockchain.feePerWeight).toJson,
-    )
+
     channels(channelID) = new ChannelView(otherNode, localBalance, remoteBalance, localParams, remoteParams)
     blockchain.subscribeChannelConfirmed(channelID, requiredConfirmations)
   }
@@ -455,6 +449,14 @@ class NodeActor(val id: NodeID,
     val channelParams = params.channelParams(capacity)
     val pushAmount = maybePendingPayment.map(_.info.amount).getOrElse(0L)
     val openMsg = OpenChannel(channelID, capacity, pushAmount, channelParams)
+
+    output.openChannel(
+      channelID = channelID,
+      initiatingNode = id,
+      receivingNode = nodeID,
+      capacity = capacity,
+      fee = params.channelOpenWeight * blockchain.feePerWeight,
+    )
 
     // Register payment to be completed when channel is open.
     for (pendingPayment <- maybePendingPayment) {
