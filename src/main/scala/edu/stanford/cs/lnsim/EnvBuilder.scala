@@ -41,9 +41,6 @@ class EnvBuilder(private val spec: SimulationSpec,
 
     val nodeMap = nodes.map(node => node.id -> node).toMap
 
-    // First transaction happens at t = 1s
-    val timeOffset = spec.transactions.head.timestamp - 1000
-
     // Create NewPayment events for all transactions in the spec.
     val initialEvents = for (transactionSpec <- spec.transactions) yield {
       val sender = nodeMap.getOrElse(transactionSpec.sender,
@@ -58,7 +55,7 @@ class EnvBuilder(private val spec: SimulationSpec,
         finalExpiryDelta = params.finalExpiryDelta,
         paymentID = transactionSpec.paymentID,
       )
-      (transactionSpec.timestamp - timeOffset, events.NewPayment(payment))
+      (transactionSpec.timestamp, events.NewPayment(payment))
     }
 
     new Environment(nodeMap, initialEvents, blockchain)
@@ -80,7 +77,7 @@ object EnvBuilder {
   /** Assume that when nodes open new direct channels in order complete payments, that the capacity
     * of the channel is this multiple of the payment amount.
     */
-  val CapacityMultiplier: Int = 4
+  val CapacityMultiplier: Int = 2
 
   /** If a payment cannot be completed off-chain within this amount of time, open a direct channel
     * to guarantee payment delivery.

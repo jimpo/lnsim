@@ -181,6 +181,7 @@ class NodeActor(val id: NodeID,
         s"Error failing HTLC $htlcID on channel $channelID: $error"
       )
     }
+    checkChannelClosed(channelID, channel)
 
     nextHops match {
       case (nextChannelInfo, nextHtlcID) :: _ =>
@@ -220,6 +221,7 @@ class NodeActor(val id: NodeID,
       case Left(error) =>
         throw new HTLCUpdateFailure(s"Error fulfilling HTLC $htlcID on channel $channelID: $error")
     }
+    checkChannelClosed(channelID, channel)
 
     nextHops match {
       case (nextChannelInfo, nextHtlcID) :: _ =>
@@ -538,6 +540,7 @@ class NodeActor(val id: NodeID,
       "msg" -> "Payment completed".toJson,
       "paymentID" -> paymentID.toJson,
       "onChain" -> onChain.toJson,
+      "amount" -> pendingPayment.info.amount.toJson,
       "tries" -> pendingPayment.tries.toJson,
       "totalTime" -> (timestamp - pendingPayment.timestamp).toJson,
     )
