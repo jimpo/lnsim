@@ -32,3 +32,7 @@ case object IncorrectPaymentAmount extends RoutingError with PermanentError
 case object FinalExpiryTooSoon extends RoutingError
 case class FinalIncorrectExpiry(incomingExpiry: BlockNumber) extends RoutingError
 case class FinalIncorrectHTLCAmount(incomingAmount: Value) extends RoutingError
+case object IncorrectExpiryDelta extends RoutingError with UpdateError
+case object ExpiryTooSoon extends RoutingError with UpdateError
+case object FeeInsufficient extends RoutingError with UpdateError
+case object ExpiryTooFar extends RoutingError

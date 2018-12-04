@@ -18,4 +18,8 @@ object EclairDefaults {
 
   val FinalExpiryDelta: BlockDelta = 9
   val MinDepthBlocks: BlockDelta = 3
+
+  // Channel.MIN_CLTV_EXPIRY, Channel.MAX_CLTV_EXPIRY
+  val MinExpiry: BlockDelta = 9
+  val MaxExpiry: BlockDelta = 7 * 144
 }

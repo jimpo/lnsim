@@ -13,6 +13,7 @@ import scala.collection.mutable
 
 class NodeActor(val id: NodeID,
                 val params: NodeActor.Params,
+                private val controller: NodeController,
                 private val output: ObservableOutput,
                 private val router: Router,
                 private val graphView: NetworkGraphView,
@@ -92,68 +93,90 @@ class NodeActor(val id: NodeID,
     addRemoteHTLC(hop)
 
     val backwardsRoute = BackwardRoutingPacket((hop.channel, hop.id) :: route.backwardRoute.hops)
-    if (nextHops.isEmpty) {
-      processFinalHopHTLC(hop, route.finalHop, backwardsRoute)
-    } else {
-      processIntermediateHopHTLC(ForwardRoutingPacket(nextHops, route.finalHop, backwardsRoute))
+    nextHops.headOption match {
+      case Some(nextHop) =>
+        val newRoute = ForwardRoutingPacket(nextHops, route.finalHop, backwardsRoute)
+        processIntermediateHopHTLC(hop, newRoute)
+      case None =>
+        processFinalHopHTLC(hop, route.finalHop, backwardsRoute)
     }
   }
 
-  protected def processIntermediateHopHTLC(route: ForwardRoutingPacket)
-                                          (implicit ctx: NodeContext): Unit = {
+  private def forwardHTLC(route: ForwardRoutingPacket)(implicit ctx: NodeContext): Unit = {
     val (nextHop :: restHops) = route.hops
-
-    ctx.advanceTimestamp(HTLCUpdateProcessingTime)
-    val event = sendHTLC(nextHop) match {
-      case Left(error) =>
-        val prevHop = route.backwardRoute.hops.head
-        val prevChannelID = prevHop._1.id
-        val prevHTLCID = prevHop._2
-
-        val prevChannel = lookupChannel(prevChannelID)
-          .getOrElse(throw new HTLCUpdateFailure(
-            s"Node $id received HTLC on unknown channel $prevChannelID"))
-
-        prevChannel.failRemoteHTLC(prevHTLCID).left.foreach(error => throw new HTLCUpdateFailure(
-          s"Error failing newly added HTLC $prevHTLCID on channel $prevChannelID: $error"
-        ))
-        val failMsg = UpdateFailHTLC(route.backwardRoute, error, Some(nextHop.channel))
-        ctx.sendMessage(prevChannel.otherNode, failMsg)
-
-      case Right(nextHtlc) =>
-        logger.debug(
-          "msg" -> "Forwarding HTLC".toJson,
-          "htlcID" -> nextHtlc.id.toJson,
-          "channelID" -> nextHop.channelID.toJson,
-          "paymentID" -> nextHtlc.paymentID.toJson,
-        )
-        val newRoute = route.copy(hops = nextHtlc :: restHops)
+    sendHTLC(nextHop) match {
+      case Left(error) => failHTLC(route.backwardRoute, error, Some(nextHop.channel))
+      case Right(nextHTLC) =>
+        ctx.advanceTimestamp(HTLCUpdateProcessingTime)
+        val newRoute = route.copy(hops = nextHTLC :: restHops)
         ctx.sendMessage(nextHop.recipient, UpdateAddHTLC(newRoute))
     }
   }
 
+  private def failHTLC(route: BackwardRoutingPacket, error: RoutingError, errorChannel: Option[Channel])
+                      (implicit ctx: NodeContext): Unit = {
+    val (channel, htlcID) = route.hops.head
+
+    val maybeError = lookupChannel(channel.id) match {
+      case Some(channelView) =>
+        ctx.advanceTimestamp(HTLCUpdateProcessingTime)
+        channelView.failRemoteHTLC(htlcID).left.toOption
+      case None => Some(UnknownNextPeer)
+    }
+    maybeError.foreach(error => throw new HTLCUpdateFailure(
+      s"Error failing HTLC $htlcID on channel ${channel.id}: $error"
+    ))
+
+    ctx.sendMessage(channel.source, UpdateFailHTLC(route, error, errorChannel))
+  }
+
+  private def fulfillHTLC(route: BackwardRoutingPacket)(implicit ctx: NodeContext): Unit = {
+    val (channel, htlcID) = route.hops.head
+
+    val maybeError = lookupChannel(channel.id) match {
+      case Some(channelView) =>
+        ctx.advanceTimestamp(HTLCUpdateProcessingTime)
+        channelView.fulfillRemoteHTLC(htlcID).left.toOption
+      case None => Some(UnknownNextPeer)
+    }
+    maybeError.foreach(error => throw new HTLCUpdateFailure(
+      s"Error fulfilling HTLC $htlcID on channel ${channel.id}: $error"
+    ))
+
+    ctx.sendMessage(channel.source, UpdateFulfillHTLC(route))
+  }
+
   protected def processFinalHopHTLC(incomingHTLC: HTLC, finalHop: FinalHop, backwardsRoute: BackwardRoutingPacket)
                                    (implicit ctx: NodeContext): Unit = {
-    val channelID = incomingHTLC.channel.id
-    val channel = channels.getOrElse(channelID,
-      throw new HTLCUpdateFailure(s"Node $id received HTLC on unknown channel $channelID")
-    )
+    val (maybeError, maybeBlockNumber) =
+      controller.acceptHTLC(incomingHTLC, finalHop, blockchain.blockNumber)
+    val action = maybeError match {
+      case Some(error) => FailHTLC(backwardsRoute, error, None)
+      case None => FulfillHTLC(backwardsRoute)
+    }
 
-    acceptHTLC(incomingHTLC, finalHop) match {
+    val blockNumber = maybeBlockNumber.getOrElse(blockchain.blockNumber)
+    if (!blockchain.subscribeAction(blockNumber, action)) {
+      // If we failed to register the subscription, do the action immediately.
+      handleAction(action)
+    }
+  }
+
+  private def processIntermediateHopHTLC(prevHop: HTLC, route: ForwardRoutingPacket)
+                                        (implicit ctx: NodeContext): Unit = {
+    val (nextHop :: restHops) = route.hops
+    val (maybeError, maybeBlockNumber) =
+      controller.forwardHTLC(prevHop, nextHop, blockchain.blockNumber)
+    val action = maybeError match {
       case Some(error) =>
-        ctx.advanceTimestamp(HTLCUpdateProcessingTime)
-        channel.failRemoteHTLC(incomingHTLC.id).left.foreach(error => throw new HTLCUpdateFailure(
-          s"Error failing newly added HTLC ${incomingHTLC.id} on channel $channelID: $error"
-        ))
-        val failMsg = UpdateFailHTLC(backwardsRoute, error, None)
-        ctx.sendMessage(channel.otherNode, failMsg)
+        FailHTLC(route.backwardRoute, error, Some(nextHop.channel))
+      case None => ForwardHTLC(route)
+    }
 
-      case None =>
-        ctx.advanceTimestamp(HTLCUpdateProcessingTime)
-        channel.fulfillRemoteHTLC(incomingHTLC.id).left.foreach(error => throw new HTLCUpdateFailure(
-          s"Error fulfilling newly added HTLC ${incomingHTLC.id} on channel $channelID: $error"
-        ))
-        ctx.sendMessage(channel.otherNode, UpdateFulfillHTLC(backwardsRoute))
+    val blockNumber = maybeBlockNumber.getOrElse(blockchain.blockNumber)
+    if (!blockchain.subscribeAction(blockNumber, action)) {
+      // If we failed to register the subscription, do the action immediately.
+      handleAction(action)
     }
   }
 
@@ -176,25 +199,12 @@ class NodeActor(val id: NodeID,
     }
     checkChannelClosed(channelID, channel)
 
-    nextHops match {
-      case (nextChannelInfo, nextHtlcID) :: _ =>
-        // Intermediate hop in the circuit.
-        val nextChannelID = nextChannelInfo.id
-        val maybeError = channels.get(nextChannelID) match {
-          case Some(nextChannel) =>
-            ctx.advanceTimestamp(HTLCUpdateProcessingTime)
-            nextChannel.failRemoteHTLC(nextHtlcID).left.toOption
-          case None => Some(UnknownNextPeer)
-        }
-        maybeError.foreach(error => throw new HTLCUpdateFailure(
-          s"Error forwarding HTLC $nextHtlcID fail on channel $nextChannelID: $error"
-        ))
-
-        val newRoute = BackwardRoutingPacket(nextHops)
-        ctx.sendMessage(nextChannelInfo.source, failMsg.copy(route = newRoute))
-      case Nil =>
-        // Error made it back to the original sender.
-        failPayment(htlc.paymentID, failMsg.error, failMsg.channel)
+    if (nextHops.isEmpty) {
+      // Error made it back to the original sender.
+      failPayment(htlc.paymentID, failMsg.error, failMsg.channel)
+    } else {
+      // Intermediate hop in the circuit.
+      failHTLC(BackwardRoutingPacket(nextHops), failMsg.error, failMsg.channel)
     }
   }
 
@@ -216,26 +226,12 @@ class NodeActor(val id: NodeID,
     }
     checkChannelClosed(channelID, channel)
 
-    nextHops match {
-      case (nextChannelInfo, nextHtlcID) :: _ =>
-        // Intermediate hop in the circuit.
-        val maybeError = channels.get(nextChannelInfo.id) match {
-          case Some(nextChannel) => {
-            ctx.advanceTimestamp(HTLCUpdateProcessingTime)
-            nextChannel.failRemoteHTLC(nextHtlcID).left.toOption
-          }
-          case None => Some(UnknownNextPeer)
-        }
-        maybeError.foreach(error => throw new HTLCUpdateFailure(
-          s"Error forwarding HTLC $nextHtlcID fulfill on channel ${nextChannelInfo.id}: $error"
-        ))
-
-        val newRoute = BackwardRoutingPacket(nextHops)
-        ctx.sendMessage(nextChannelInfo.source, UpdateFulfillHTLC(newRoute))
-
-      case Nil =>
-        // Payment confirmation made it back to the original sender.
-        completePayment(htlc.paymentID, ctx.timestamp, onChain = false)
+    if (nextHops.isEmpty) {
+      // Payment confirmation made it back to the original sender.
+      completePayment(htlc.paymentID, ctx.timestamp, onChain = false)
+    } else {
+      // Intermediate hop in the circuit.
+      fulfillHTLC(BackwardRoutingPacket(nextHops))
     }
   }
 
@@ -288,22 +284,6 @@ class NodeActor(val id: NodeID,
       localParams = acceptMsg.params,
       remoteParams = openMsg.params
     )
-  }
-
-  private def acceptHTLC(htlc: HTLC, finalHop: FinalHop): Option[RoutingError] = {
-    if (!finalHop.paymentIDKnown) {
-      return Some(UnknownPaymentHash)
-    }
-    if (htlc.amount < finalHop.amount) {
-      return Some(FinalIncorrectHTLCAmount(htlc.amount))
-    }
-    if (htlc.expiry < finalHop.expiry) {
-      return Some(FinalIncorrectExpiry(htlc.expiry))
-    }
-    if (finalHop.expiry < blockchain.blockNumber + params.finalExpiryDelta) {
-      return Some(FinalExpiryTooSoon)
-    }
-    None
   }
 
   def route(paymentInfo: PaymentInfo,
@@ -577,6 +557,7 @@ class NodeActor(val id: NodeID,
         case _: UpdateError => // TODO: Validate error legitimacy
         case _: BadOnionError => ???
         case FinalExpiryTooSoon |
+             ExpiryTooFar |
              FinalIncorrectExpiry(_) |
              FinalIncorrectHTLCAmount(_) |
              NotDecodable =>
@@ -617,54 +598,16 @@ class NodeActor(val id: NodeID,
   def handleAction(action: NodeAction)
                   (implicit ctx: NodeContext): Unit = action match {
     case RetryPayment(payment) => executePayment(payment)
-    case _ => ???
+    case ForwardHTLC(route) => forwardHTLC(route)
+    case FailHTLC(route, error, channel) => failHTLC(route, error, channel)
+    case FulfillHTLC(route) => fulfillHTLC(route)
+    case OpenNewChannels(budget) => openNewChannels(budget)
   }
 
-  /** This algorithm is based off of LND's autopilot heuristic, which uses preferential attachment
-    * to determine which nodes to open channels to. The algorithm is to:
-    *
-    * Sample a node at random
-    *   - that we do not already have a channel with
-    *   - that is not banned
-    *   - weighted by the number of active channels it has with other nodes
-    *
-    * Attempt to open a channel up to some maximum capacity. Repeat until the budget becomes less
-    * than the configured minimum channel size.
-    *
-    * See https://github.com/lightningnetwork/lnd/blob/v0.5-beta/autopilot/prefattach.go#L145
-    */
-  def openNewChannels(budget: Value)
-                     (implicit ctx: NodeContext): Unit = {
-    // Count the number of channels for each non-banned node. These are the weights of the
-    // PMF (probability mass function) of the distribution.
-    //
-    // TODO: Only open channels to nodes we do not already have connections or pending connections to.
-    val nodeWeights = graphView.nodeIterator
-      .filter(node => graphView.constraints.allowNode(node.id))
-      .map(node => node.id -> node.channels.size)
-      .toArray
-
-    // Convert the PMF to a CMF (cumulative mass function) in place.
-    for (i <- 1 until nodeWeights.length) {
-      val (nodeID, weight) = nodeWeights(i)
-      nodeWeights(i) = (nodeID, weight + nodeWeights(i - 1)._2)
-    }
-
-    val channelOpenAmount = Math.max(
-      budget / params.autoPilotNumChannels,
-      params.autoPilotMinChannelSize
-    )
+  def openNewChannels(budget: Value)(implicit ctx: NodeContext): Unit = {
     val channelOpenFee = params.channelOpenWeight * blockchain.feePerWeight
-
-    var remainingBudget = budget
-    while (remainingBudget >= params.autoPilotMinChannelSize + channelOpenFee) {
-      val nodeID = Util.sampleCMF(nodeWeights)
-      if (nodeID != id) {
-        val capacity = Math.min(remainingBudget, channelOpenAmount)
-
-        initiateChannelOpen(nodeID, capacity, maybePendingPayment = None)
-        remainingBudget -= capacity + channelOpenFee
-      }
+    for ((targetNodeID, capacity) <- controller.autoConnect(id, budget, graphView)) {
+      initiateChannelOpen(targetNodeID, capacity, maybePendingPayment = None)
     }
   }
 
@@ -687,8 +630,8 @@ object NodeActor {
                     maxAcceptedHTLCs: Int,
                     htlcMinimum: Value,
                     requiredConfirmations: BlockDelta,
-                    finalExpiryDelta: BlockDelta,
                     expiryDelta: BlockDelta,
+                    finalExpiryDelta: BlockDelta,
                     feeBase: Value,
                     feeProportionalMillionths: Long,
                     autoPilotMinChannelSize: Value,

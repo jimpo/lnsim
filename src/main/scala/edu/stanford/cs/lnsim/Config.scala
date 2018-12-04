@@ -6,7 +6,8 @@ case class Config(randomSeed: Option[Int] = None,
                   specFileName: Option[String] = None,
                   blockInterval: Int = Config.DefaultBlockInterval,
                   duration: Int = Config.DefaultDuration,
-                  feePerWeight: Value = Config.DefaultFeePerWeight)
+                  feePerWeight: Value = Config.DefaultFeePerWeight,
+                  numAttackNodes: Int = 0)
 
 object Config {
   val DefaultBlockInterval: Int = 10 * 60
@@ -38,6 +39,10 @@ object Config {
     opt[Int]("fee-per-weight")
       .action((feePerWeight, c) => c.copy(feePerWeight = feePerWeight))
       .text(s"static fee rate used in the simulation in mSAT (default: $DefaultFeePerWeight")
+
+    opt[Int]("num-attack-nodes")
+      .action((numAttackNodes, c) => c.copy(numAttackNodes = numAttackNodes))
+      .text("the number of attacking nodes (default: 0)")
   }
 }
 

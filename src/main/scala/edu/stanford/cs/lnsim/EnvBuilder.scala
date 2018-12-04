@@ -3,7 +3,7 @@ package edu.stanford.cs.lnsim
 import edu.stanford.cs.lnsim.des.{TimeDelta, secondsToTimeDelta}
 import edu.stanford.cs.lnsim.graph.NetworkGraph
 import edu.stanford.cs.lnsim.log.StructuredLogging
-import edu.stanford.cs.lnsim.node.{BlockchainView, DelayingActor, NodeActor}
+import edu.stanford.cs.lnsim.node._
 import edu.stanford.cs.lnsim.routing.{MinimalFeeRouter, NetworkGraphView}
 import edu.stanford.cs.lnsim.spec.SimulationSpec
 import spray.json._
@@ -14,7 +14,7 @@ class EnvBuilder(private val spec: SimulationSpec,
                  private val blockchain: Blockchain) extends StructuredLogging {
   import EnvBuilder._
 
-  def build(): Environment = {
+  def build(numAttackNodes: Int = 0): Environment = {
     val graph = new NetworkGraph()
     val router = new MinimalFeeRouter(MaximumRoutingFee, MaxRoutingHops)
     val output = new LoggingOutput()
@@ -26,8 +26,8 @@ class EnvBuilder(private val spec: SimulationSpec,
       EclairDefaults.MaxAcceptedHTLCs,
       EclairDefaults.HTLCMinimum,
       EclairDefaults.MinDepthBlocks,
-      EclairDefaults.FinalExpiryDelta,
       EclairDefaults.ExpiryDelta,
+      EclairDefaults.FinalExpiryDelta,
       EclairDefaults.FeeBase,
       EclairDefaults.FeeProportionalMillionths,
       LndDefaults.AutoPilotMinChannelSize,
@@ -42,17 +42,36 @@ class EnvBuilder(private val spec: SimulationSpec,
     val nodes = for (nodeSpec <- spec.nodes) yield {
       val graphView = new NetworkGraphView(graph)
       val blockchainView = new BlockchainView(nodeSpec.id, blockchain)
-      new NodeActor(nodeSpec.id, params, output, router, graphView, blockchainView)
+      val controller = new DefaultController(
+        feeBase = params.feeBase,
+        feeProportionalMillionths = params.feeProportionalMillionths,
+        finalExpiryDelta = EclairDefaults.FinalExpiryDelta,
+        requiredExpiryDelta = params.expiryDelta,
+        minExpiry = EclairDefaults.MinExpiry,
+        maxExpiry = EclairDefaults.MaxExpiry,
+      )
+      new NodeActor(nodeSpec.id, params, controller, output, router, graphView, blockchainView)
     }
-    val attackNodes = for (_ <- 1 to NumAttackNodes) yield {
+
+    val attackParams = DelayingController.AttackParams(
+      numChannels = NumAttackChannelsPerNode,
+      channelCapacity = CapacityPerAttackChannel,
+    )
+    val attackNodes = for (_ <- 1 to numAttackNodes) yield {
       val nodeID = Util.randomUUID()
       val graphView = new NetworkGraphView(graph)
       val blockchainView = new BlockchainView(nodeID, blockchain)
 
-      val attackParams = DelayingActor.AttackParams(
-        numChannels = NumAttackChannelsPerNode,
-        channelCapacity = CapacityPerAttackChannel,
+      val controller = new DelayingController(
+        feeBase = params.feeBase,
+        feeProportionalMillionths = params.feeProportionalMillionths,
+        finalExpiryDelta = EclairDefaults.FinalExpiryDelta,
+        requiredExpiryDelta = params.expiryDelta,
+        minExpiry = EclairDefaults.MinExpiry,
+        maxExpiry = EclairDefaults.MaxExpiry,
+        attackParams = attackParams,
       )
+
       logger.info(
         "msg" -> "Initializing attack node".toJson,
         "nodeID" -> nodeID.toJson,
@@ -62,6 +81,7 @@ class EnvBuilder(private val spec: SimulationSpec,
         nodeID,
         params,
         attackParams,
+        controller,
         output,
         router,
         graphView,
@@ -128,7 +148,6 @@ object EnvBuilder {
     */
   val OffChainPaymentTimeout: TimeDelta = secondsToTimeDelta(30 * 60)
 
-  val NumAttackNodes: Int = 10
   val NumAttackChannelsPerNode: Int = 100
   val CapacityPerAttackChannel: Value = 100000000000L // 1 BTC
 }
