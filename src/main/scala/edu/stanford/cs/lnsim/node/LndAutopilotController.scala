@@ -1,23 +1,12 @@
 package edu.stanford.cs.lnsim.node
 
 import edu.stanford.cs.lnsim.routing.NetworkGraphView
-import edu.stanford.cs.lnsim.{BlockDelta, NodeID, Util, Value}
+import edu.stanford.cs.lnsim.{NodeID, Util, Value}
 
-class LndAutopilotController(feeBase: Value,
-                             feeProportionalMillionths: Long,
-                             finalExpiryDelta: BlockDelta,
-                             requiredExpiryDelta: BlockDelta,
-                             minExpiry: BlockDelta,
-                             maxExpiry: BlockDelta,
+class LndAutopilotController(params: NodeActor.Params,
                              private val autoPilotMinChannelSize: Value,
                              private val autoPilotNumChannels: Int)
-  extends DefaultController(
-          feeBase,
-          feeProportionalMillionths,
-          finalExpiryDelta,
-          requiredExpiryDelta,
-          minExpiry,
-          maxExpiry) {
+  extends DefaultController(params) {
 
   /** This algorithm is based off of LND's autopilot heuristic, which uses preferential attachment
     * to determine which nodes to open channels to. The algorithm is to:

@@ -30,9 +30,9 @@ class EnvBuilder(private val spec: SimulationSpec,
       EclairDefaults.FinalExpiryDelta,
       EclairDefaults.FeeBase,
       EclairDefaults.FeeProportionalMillionths,
-      LndDefaults.AutoPilotMinChannelSize,
-      LndDefaults.AutoPilotMinChannelSize,
-      LndDefaults.AutoPilotNumChannels,
+      EclairDefaults.MinFundingAmount,
+      EclairDefaults.MinExpiry,
+      EclairDefaults.MaxExpiry,
       FundingTransactionWeight,
       CapacityMultiplier,
       OffChainPaymentTimeout,
@@ -42,17 +42,16 @@ class EnvBuilder(private val spec: SimulationSpec,
     val nodes = for (nodeSpec <- spec.nodes) yield {
       val graphView = new NetworkGraphView(graph)
       val blockchainView = new BlockchainView(nodeSpec.id, blockchain)
-      val controller = new DefaultController(
-        feeBase = params.feeBase,
-        feeProportionalMillionths = params.feeProportionalMillionths,
-        finalExpiryDelta = EclairDefaults.FinalExpiryDelta,
-        requiredExpiryDelta = params.expiryDelta,
-        minExpiry = EclairDefaults.MinExpiry,
-        maxExpiry = EclairDefaults.MaxExpiry,
+      val controller = new LndAutopilotController(
+        params,
+        Math.max(LndDefaults.AutoPilotMinChannelSize, EclairDefaults.MinFundingAmount),
+        LndDefaults.AutoPilotNumChannels,
       )
       new NodeActor(nodeSpec.id, params, controller, output, router, graphView, blockchainView)
     }
 
+    // Create attacker nodes.
+    val attackerParams = params.copy(maxAcceptedHTLCs = AttackerMaxHTLCs)
     val attackParams = DelayingController.AttackParams(
       numChannels = NumAttackChannelsPerNode,
       channelCapacity = CapacityPerAttackChannel,
@@ -62,15 +61,7 @@ class EnvBuilder(private val spec: SimulationSpec,
       val graphView = new NetworkGraphView(graph)
       val blockchainView = new BlockchainView(nodeID, blockchain)
 
-      val controller = new DelayingController(
-        feeBase = params.feeBase,
-        feeProportionalMillionths = params.feeProportionalMillionths,
-        finalExpiryDelta = EclairDefaults.FinalExpiryDelta,
-        requiredExpiryDelta = params.expiryDelta,
-        minExpiry = EclairDefaults.MinExpiry,
-        maxExpiry = EclairDefaults.MaxExpiry,
-        attackParams = attackParams,
-      )
+      val controller = new DelayingController(attackerParams, attackParams)
 
       logger.info(
         "msg" -> "Initializing attack node".toJson,
@@ -79,7 +70,7 @@ class EnvBuilder(private val spec: SimulationSpec,
       )
       new DelayingActor(
         nodeID,
-        params,
+        attackerParams,
         attackParams,
         controller,
         output,
@@ -148,6 +139,7 @@ object EnvBuilder {
     */
   val OffChainPaymentTimeout: TimeDelta = secondsToTimeDelta(30 * 60)
 
-  val NumAttackChannelsPerNode: Int = 100
-  val CapacityPerAttackChannel: Value = 100000000000L // 1 BTC
+  val NumAttackChannelsPerNode: Int = 10000
+  val CapacityPerAttackChannel: Value = EclairDefaults.MinFundingAmount
+  val AttackerMaxHTLCs: Int = 100
 }

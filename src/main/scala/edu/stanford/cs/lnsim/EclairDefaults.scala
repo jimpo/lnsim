@@ -5,6 +5,7 @@ object EclairDefaults {
   val FeeBase: Value = 1000
   val FeeProportionalMillionths: Long = 100
   val DustLimitSatoshis: Value = 546000
+  val MinFundingAmount: Value = 100000000L
 
   val HTLCMinimum: Value = 1
   val MaxAcceptedHTLCs: Int = 30

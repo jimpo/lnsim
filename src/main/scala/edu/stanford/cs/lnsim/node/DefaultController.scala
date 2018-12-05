@@ -3,26 +3,20 @@ import edu.stanford.cs.lnsim
 import edu.stanford.cs.lnsim._
 import edu.stanford.cs.lnsim.routing.NetworkGraphView
 
-class DefaultController(private val feeBase: Value,
-                        private val feeProportionalMillionths: Long,
-                        private val finalExpiryDelta: BlockDelta,
-                        private val requiredExpiryDelta: BlockDelta,
-                        private val minExpiry: BlockDelta,
-                        private val maxExpiry: BlockDelta) extends NodeController {
-
+class DefaultController(private val params: NodeActor.Params) extends NodeController {
   override def forwardHTLC(prevHop: lnsim.HTLC, nextHop: lnsim.HTLC, blockNumber: BlockNumber)
   : (Option[RoutingError], Option[BlockNumber]) = {
-    if (nextHop.expiry - prevHop.expiry < requiredExpiryDelta) {
+    if (nextHop.expiry - prevHop.expiry < params.expiryDelta) {
       return (Some(IncorrectExpiryDelta), None)
     }
-    if (nextHop.expiry - blockNumber < minExpiry) {
+    if (nextHop.expiry - blockNumber < params.minExpiry) {
       return (Some(ExpiryTooSoon), None)
     }
-    if (nextHop.expiry - blockNumber > maxExpiry) {
+    if (nextHop.expiry - blockNumber > params.maxExpiry) {
       return (Some(ExpiryTooFar), None)
     }
 
-    val requiredFee = feeBase + nextHop.amount * feeProportionalMillionths
+    val requiredFee = params.feeBase + nextHop.amount * params.feeProportionalMillionths
     if (nextHop.amount - prevHop.amount < requiredFee) {
       return (Some(FeeInsufficient), None)
     }
@@ -41,7 +35,7 @@ class DefaultController(private val feeBase: Value,
     if (htlc.expiry < finalHop.expiry) {
       return (Some(FinalIncorrectExpiry(htlc.expiry)), None)
     }
-    if (finalHop.expiry < blockNumber + finalExpiryDelta) {
+    if (finalHop.expiry < blockNumber + params.finalExpiryDelta) {
       return (Some(FinalExpiryTooSoon), None)
     }
 

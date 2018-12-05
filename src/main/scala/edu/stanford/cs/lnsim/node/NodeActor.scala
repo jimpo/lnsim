@@ -238,6 +238,10 @@ class NodeActor(val id: NodeID,
   def handleOpenChannel(otherNode: NodeID, message: OpenChannel)
                        (implicit ctx: NodeContext): Unit = {
     // TODO: Sanity check params
+    if (message.capacity < params.minChannelCapacity) {
+      throw new MisbehavingNodeException(s"Node $otherNode attempted to open channel below minimum amount")
+    }
+
     val acceptMsg = AcceptChannel(
       message,
       params.requiredConfirmations,
@@ -492,7 +496,7 @@ class NodeActor(val id: NodeID,
   }
 
   private def newChannelCapacity(_node: NodeID, initialPaymentAmount: Value): Value =
-    initialPaymentAmount * params.capacityMultiplier
+    Math.max(initialPaymentAmount * params.capacityMultiplier, params.minChannelCapacity)
 
   private def channelUpdate(channelID: ChannelID,
                             otherNodeID: NodeID,
@@ -634,9 +638,9 @@ object NodeActor {
                     finalExpiryDelta: BlockDelta,
                     feeBase: Value,
                     feeProportionalMillionths: Long,
-                    autoPilotMinChannelSize: Value,
-                    autoPilotMaxChannelSize: Value,
-                    autoPilotNumChannels: Int,
+                    minChannelCapacity: Value,
+                    minExpiry: BlockDelta,
+                    maxExpiry: BlockDelta,
                     channelOpenWeight: Int,
                     capacityMultiplier: Int,
                     offChainPaymentTimeout: TimeDelta) {
