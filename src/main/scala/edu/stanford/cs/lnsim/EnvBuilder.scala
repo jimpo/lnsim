@@ -1,6 +1,4 @@
 package edu.stanford.cs.lnsim
-
-import edu.stanford.cs.lnsim.des.{TimeDelta, secondsToTimeDelta}
 import edu.stanford.cs.lnsim.graph.NetworkGraph
 import edu.stanford.cs.lnsim.log.StructuredLogging
 import edu.stanford.cs.lnsim.node._
@@ -9,6 +7,7 @@ import edu.stanford.cs.lnsim.spec.SimulationSpec
 import spray.json._
 import spray.json.DefaultJsonProtocol._
 import JSONProtocol._
+import edu.stanford.cs.lnsim.des.{TimeDelta, secondsToTimeDelta}
 
 class EnvBuilder(private val spec: SimulationSpec,
                  private val blockchain: Blockchain) extends StructuredLogging {
@@ -16,7 +15,7 @@ class EnvBuilder(private val spec: SimulationSpec,
 
   def build(numAttackNodes: Int = 0): Environment = {
     val graph = new NetworkGraph()
-    val router = new MinimalFeeRouter(MaximumRoutingFee, MaxRoutingHops)
+    val router = new MinimalFeeRouter(MaximumRoutingFee, MaxRoutingHops, EclairDefaults.MaxExpiry)
     val output = new LoggingOutput()
 
     val params = NodeActor.Params(
@@ -51,8 +50,12 @@ class EnvBuilder(private val spec: SimulationSpec,
     }
 
     // Create attacker nodes.
-    val attackerParams = params.copy(maxAcceptedHTLCs = AttackerMaxHTLCs)
-    val attackParams = DelayingController.AttackParams(
+    val attackerParams = params.copy(
+      feeBase = 0,
+      feeProportionalMillionths = 0,
+      maxAcceptedHTLCs = AttackerMaxHTLCs,
+    )
+    val attackParams = AutoPilotCaptureController.AttackParams(
       numChannels = NumAttackChannelsPerNode,
       channelCapacity = CapacityPerAttackChannel,
     )
@@ -61,17 +64,16 @@ class EnvBuilder(private val spec: SimulationSpec,
       val graphView = new NetworkGraphView(graph)
       val blockchainView = new BlockchainView(nodeID, blockchain)
 
-      val controller = new DelayingController(attackerParams, attackParams)
+      val controller = new NaiveDelayingController(attackerParams, attackParams)
 
       logger.info(
         "msg" -> "Initializing attack node".toJson,
         "nodeID" -> nodeID.toJson,
         "budget" -> (attackParams.numChannels * attackParams.channelCapacity).toJson,
       )
-      new DelayingActor(
+      new NodeActor(
         nodeID,
         attackerParams,
-        attackParams,
         controller,
         output,
         router,

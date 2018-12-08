@@ -110,6 +110,7 @@ package object lnsim {
   case class PendingPayment(info: PaymentInfo,
                             timestamp: Timestamp,
                             tries: Int,
+                            hops: Int,
                             constraints: RouteConstraints)
 
   /**

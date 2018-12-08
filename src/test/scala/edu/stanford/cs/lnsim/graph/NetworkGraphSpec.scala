@@ -66,33 +66,33 @@ class NetworkGraphSpec extends FlatSpec with Matchers {
 
     assert(graph.node(nodeID1).isDefined)
     var node1 = graph.node(nodeID1).get
-    assert(node1.channels.get(channelID1) == Some(channel1AtoB))
-    assert(node1.channels.get(channelID2) == Some(channel2AtoB))
-    assert(node1.channels.get(channelID3) == Some(channel3AtoB))
+    assert(node1.channel(channelID1) == Some(channel1AtoB))
+    assert(node1.channel(channelID2) == Some(channel2AtoB))
+    assert(node1.channel(channelID3) == Some(channel3AtoB))
 
     assert(graph.node(nodeID2).isDefined)
     var node2 = graph.node(nodeID2).get
-    assert(node2.channels.get(channelID1) == Some(channel1BtoA))
-    assert(node2.channels.get(channelID2) == Some(channel2BtoA))
-    assert(node2.channels.get(channelID3) == None)
+    assert(node2.channel(channelID1) == Some(channel1BtoA))
+    assert(node2.channel(channelID2) == Some(channel2BtoA))
+    assert(node2.channel(channelID3) == None)
 
     assert(graph.node(nodeID3).isDefined)
     var node3 = graph.node(nodeID3).get
-    assert(node3.channels.get(channelID1) == None)
-    assert(node3.channels.get(channelID2) == None)
-    assert(node3.channels.get(channelID3) == Some(channel3BtoA))
+    assert(node3.channel(channelID1) == None)
+    assert(node3.channel(channelID2) == None)
+    assert(node3.channel(channelID3) == Some(channel3BtoA))
 
     assert(graph.node(nodeID4).isEmpty)
 
     graph.removeChannel(channelID1)
-    assert(graph.node(nodeID1).get.channels.size == 2)
-    assert(graph.node(nodeID2).get.channels.size == 1)
-    assert(graph.node(nodeID3).get.channels.size == 1)
+    assert(graph.node(nodeID1).get.channelCount == 2)
+    assert(graph.node(nodeID2).get.channelCount == 1)
+    assert(graph.node(nodeID3).get.channelCount == 1)
 
     graph.removeChannel(channelID3)
-    assert(graph.node(nodeID1).get.channels.size == 1)
-    assert(graph.node(nodeID2).get.channels.size == 1)
-    assert(graph.node(nodeID3).get.channels.size == 0)
+    assert(graph.node(nodeID1).get.channelCount == 1)
+    assert(graph.node(nodeID2).get.channelCount == 1)
+    assert(graph.node(nodeID3).get.channelCount == 0)
   }
 
   it should "update channels with highest last updated timestamps" in {
@@ -121,12 +121,12 @@ class NetworkGraphSpec extends FlatSpec with Matchers {
     val graph = new NetworkGraph()
 
     graph.updateChannel(oldChannelUpdate)
-    assert(graph.node(nodeID1).flatMap(_.channels.get(channelID1)) == Some(oldChannelUpdate))
+    assert(graph.node(nodeID1).flatMap(_.channel(channelID1)) == Some(oldChannelUpdate))
 
     graph.updateChannel(newChannelUpdate)
-    assert(graph.node(nodeID1).flatMap(_.channels.get(channelID1)) == Some(newChannelUpdate))
+    assert(graph.node(nodeID1).flatMap(_.channel(channelID1)) == Some(newChannelUpdate))
 
     graph.updateChannel(oldChannelUpdate)
-    assert(graph.node(nodeID1).flatMap(_.channels.get(channelID1)) == Some(newChannelUpdate))
+    assert(graph.node(nodeID1).flatMap(_.channel(channelID1)) == Some(newChannelUpdate))
   }
 }

@@ -33,4 +33,6 @@ trait NodeController {
   def autoConnect(sourceNodeID: NodeID,
                   budget: Value,
                   graphView: NetworkGraphView): Seq[(NodeID, Value)]
+
+  def bootstrapEndActions(): Seq[NodeAction]
 }

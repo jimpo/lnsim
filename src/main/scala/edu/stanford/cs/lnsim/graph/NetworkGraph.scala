@@ -28,8 +28,8 @@ class NetworkGraph extends StructuredLogging {
       "target" -> channel.target.toJson,
     )
     val sourceID = channel.source
-    val source = nodes.getOrElse(sourceID, Node(sourceID))
-    nodes(sourceID) = source.updateChannel(channel)
+    val source = nodes.getOrElseUpdate(sourceID, new Node(sourceID))
+    source.updateChannel(channel)
 
     // Store channel endpoints indexed by channel ID
     channels.get(channel.id) match {
@@ -48,10 +48,10 @@ class NetworkGraph extends StructuredLogging {
   def removeChannel(channelID: ChannelID): Unit = channels.remove(channelID) match {
     case Some((nodeA, nodeB)) =>
       for (node <- node(nodeA)) {
-        nodes(nodeA) = node.removeChannel(channelID)
+        node.removeChannel(channelID)
       }
       for (node <- node(nodeB)) {
-        nodes(nodeB) = node.removeChannel(channelID)
+        node.removeChannel(channelID)
       }
 
     case None =>

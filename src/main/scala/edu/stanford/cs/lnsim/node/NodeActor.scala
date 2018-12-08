@@ -52,7 +52,7 @@ class NodeActor(val id: NodeID,
         val channel = channelUpdate(
           channelID = channelID,
           otherNodeID = channelView.otherNode,
-          ctx.timestamp,
+          timestamp = ctx.timestamp,
           disabled = false,
           capacity = channelView.ourInitialBalance + channelView.theirInitialBalance,
           theirChannelParams = channelView.theirParams
@@ -60,7 +60,7 @@ class NodeActor(val id: NodeID,
         graphView.updateChannel(channel)
 
         for (paymentID <- onChainPayments.remove(channelID)) {
-          completePayment(paymentID, ctx.timestamp, onChain = true)
+          completePayment(paymentID, ctx.timestamp)
         }
 
       case None =>
@@ -88,7 +88,7 @@ class NodeActor(val id: NodeID,
   def handleUpdateAddHTLC(sender: NodeID, message: UpdateAddHTLC)
                          (implicit ctx: NodeContext): Unit = {
     val UpdateAddHTLC(route) = message
-    val (hop :: nextHops) = route.hops
+    val hop :: nextHops = route.hops
 
     addRemoteHTLC(hop)
 
@@ -103,7 +103,7 @@ class NodeActor(val id: NodeID,
   }
 
   private def forwardHTLC(route: ForwardRoutingPacket)(implicit ctx: NodeContext): Unit = {
-    val (nextHop :: restHops) = route.hops
+    val nextHop :: restHops = route.hops
     sendHTLC(nextHop) match {
       case Left(error) => failHTLC(route.backwardRoute, error, Some(nextHop.channel))
       case Right(nextHTLC) =>
@@ -164,7 +164,7 @@ class NodeActor(val id: NodeID,
 
   private def processIntermediateHopHTLC(prevHop: HTLC, route: ForwardRoutingPacket)
                                         (implicit ctx: NodeContext): Unit = {
-    val (nextHop :: restHops) = route.hops
+    val nextHop :: restHops = route.hops
     val (maybeError, maybeBlockNumber) =
       controller.forwardHTLC(prevHop, nextHop, blockchain.blockNumber)
     val action = maybeError match {
@@ -176,14 +176,27 @@ class NodeActor(val id: NodeID,
     val blockNumber = maybeBlockNumber.getOrElse(blockchain.blockNumber)
     if (!blockchain.subscribeAction(blockNumber, action)) {
       // If we failed to register the subscription, do the action immediately.
+      if (maybeBlockNumber.isDefined) {
+        logger.info(
+          "msg" -> "Failed to schedule action".toJson,
+          "blocks" -> (blockNumber - maybeBlockNumber.get).toJson,
+          "minExpiry" -> params.minExpiry.toJson,
+        )
+      }
       handleAction(action)
+    } else {
+      logger.info(
+        "msg" -> "Scheduled action in the future".toJson,
+        "blocks" -> (blockNumber - blockchain.blockNumber).toJson,
+        "action" -> action.toString.toJson,
+      )
     }
   }
 
   def handleUpdateFailHTLC(sender: NodeID, failMsg: UpdateFailHTLC)
                           (implicit ctx: NodeContext): Unit = {
     val UpdateFailHTLC(route, _, _) = failMsg
-    val ((channelInfo, htlcID) :: nextHops) = route.hops
+    val (channelInfo, htlcID) :: nextHops = route.hops
     val channelID = channelInfo.id
 
     val channel = channels.getOrElse(channelID,
@@ -211,7 +224,7 @@ class NodeActor(val id: NodeID,
   def handleUpdateFulfillHTLC(sender: NodeID, fulfillMsg: UpdateFulfillHTLC)
                              (implicit ctx: NodeContext): Unit = {
     val UpdateFulfillHTLC(route) = fulfillMsg
-    val ((channelInfo, htlcID) :: nextHops) = route.hops
+    val (channelInfo, htlcID) :: nextHops = route.hops
     val channelID = channelInfo.id
 
     val channel = channels.getOrElse(channelID,
@@ -228,7 +241,7 @@ class NodeActor(val id: NodeID,
 
     if (nextHops.isEmpty) {
       // Payment confirmation made it back to the original sender.
-      completePayment(htlc.paymentID, ctx.timestamp, onChain = false)
+      completePayment(htlc.paymentID, ctx.timestamp)
     } else {
       // Intermediate hop in the circuit.
       fulfillHTLC(BackwardRoutingPacket(nextHops))
@@ -324,6 +337,7 @@ class NodeActor(val id: NodeID,
       paymentInfo,
       ctx.timestamp,
       tries = 1,
+      hops = 0,
       constraints = new RouteConstraints(),
     )
     executePayment(pendingPayment)
@@ -348,8 +362,6 @@ class NodeActor(val id: NodeID,
       return
     }
 
-    pendingPayments(paymentID) = pendingPayment
-
     val paymentElapsedTime = ctx.timestamp - pendingPayment.timestamp
     val maybeRoutingPacket = if (paymentElapsedTime < params.offChainPaymentTimeout) {
       ctx.advanceTimestamp(RoutingTime)
@@ -363,7 +375,9 @@ class NodeActor(val id: NodeID,
     maybeRoutingPacket match {
       // Attempt to send payment through the Lightning Network if a route is found.
       case Some(routingPacket) =>
-        val (firstHop :: restHops) = routingPacket.hops
+        pendingPayments(paymentID) = pendingPayment.copy(hops = routingPacket.hops.length)
+
+        val firstHop :: restHops = routingPacket.hops
         logger.debug(
           "msg" -> "Attempting to complete payment through Lightning Network".toJson,
           "paymentID" -> paymentInfo.paymentID.toJson
@@ -380,6 +394,8 @@ class NodeActor(val id: NodeID,
 
       // Otherwise, open a channel directly to the peer
       case None =>
+        pendingPayments(paymentID) = pendingPayment
+
         val capacity = newChannelCapacity(paymentInfo.recipientID, paymentInfo.amount)
         val channelID = initiateChannelOpen(paymentInfo.recipientID, capacity, Some(pendingPayment))
         logger.debug(
@@ -518,18 +534,10 @@ class NodeActor(val id: NodeID,
     )
   }
 
-  private def completePayment(paymentID: PaymentID, timestamp: Timestamp, onChain: Boolean): Unit = {
+  private def completePayment(paymentID: PaymentID, timestamp: Timestamp): Unit = {
     val pendingPayment = pendingPayments.remove(paymentID)
       .getOrElse(throw new AssertionError(s"Unknown payment $paymentID failed"))
-
-    logger.info(
-      "msg" -> "Payment completed".toJson,
-      "paymentID" -> paymentID.toJson,
-      "onChain" -> onChain.toJson,
-      "amount" -> pendingPayment.info.amount.toJson,
-      "tries" -> pendingPayment.tries.toJson,
-      "totalTime" -> (timestamp - pendingPayment.timestamp).toJson,
-    )
+    output.paymentCompleted(pendingPayment, timestamp)
   }
 
   private def failPayment(paymentID: PaymentID, error: RoutingError, maybeChannel: Option[Channel])
@@ -594,6 +602,7 @@ class NodeActor(val id: NodeID,
 
     val newPendingPayment = pendingPayment.copy(
       tries = pendingPayment.tries + 1,
+      hops = 0,
       constraints = newConstraints,
     )
     ctx.scheduleAction(PaymentRetryDelay, RetryPayment(newPendingPayment))
@@ -615,7 +624,8 @@ class NodeActor(val id: NodeID,
     }
   }
 
-  def handleBootstrapEnd()(implicit ctx: NodeContext): Unit = {}
+  def handleBootstrapEnd()(implicit ctx: NodeContext): Unit =
+    controller.bootstrapEndActions().foreach(handleAction)
 }
 
 object NodeActor {

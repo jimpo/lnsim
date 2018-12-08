@@ -22,9 +22,8 @@ class RouteConstraints private (private val ignoreNodes: Set[NodeID],
 
   def allowNode(nodeID: NodeID): Boolean = !ignoreNodes.contains(nodeID)
 
-  def allowChannel(channel: Channel): Boolean = (
+  def allowChannel(channel: Channel): Boolean =
     allowNode(channel.source) &&
       allowNode(channel.target) &&
       !ignoreChannels.contains(ChannelKey(channel.id, channel.source))
-    )
 }

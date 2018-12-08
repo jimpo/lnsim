@@ -30,7 +30,7 @@ class LndAutopilotController(params: NodeActor.Params,
     // TODO: Only open channels to nodes we do not already have connections or pending connections to.
     val nodeWeights = graphView.nodeIterator
       .filter(node => graphView.constraints.allowNode(node.id))
-      .map(node => node.id -> node.channels.size)
+      .map(node => node.id -> node.channelCount)
       .toArray
 
     // Convert the PMF to a CMF (cumulative mass function) in place.

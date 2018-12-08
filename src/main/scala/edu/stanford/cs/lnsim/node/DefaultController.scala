@@ -6,7 +6,7 @@ import edu.stanford.cs.lnsim.routing.NetworkGraphView
 class DefaultController(private val params: NodeActor.Params) extends NodeController {
   override def forwardHTLC(prevHop: lnsim.HTLC, nextHop: lnsim.HTLC, blockNumber: BlockNumber)
   : (Option[RoutingError], Option[BlockNumber]) = {
-    if (nextHop.expiry - prevHop.expiry < params.expiryDelta) {
+    if (prevHop.expiry - nextHop.expiry < params.expiryDelta) {
       return (Some(IncorrectExpiryDelta), None)
     }
     if (nextHop.expiry - blockNumber < params.minExpiry) {
@@ -46,4 +46,6 @@ class DefaultController(private val params: NodeActor.Params) extends NodeContro
                            budget: Value,
                            graphView: NetworkGraphView): Seq[(NodeID, Value)] =
     Seq()
+
+  override def bootstrapEndActions(): Seq[NodeAction] = Seq()
 }
