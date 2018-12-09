@@ -38,51 +38,11 @@ class EnvBuilder(private val spec: SimulationSpec,
     )
 
     // Create NodeActors for all nodes in the spec.
-    val nodes = for (nodeSpec <- spec.nodes) yield {
-      val graphView = new NetworkGraphView(graph)
-      val blockchainView = new BlockchainView(nodeSpec.id, blockchain)
-      val controller = new LndAutopilotController(
-        params,
-        Math.max(LndDefaults.AutoPilotMinChannelSize, EclairDefaults.MinFundingAmount),
-        LndDefaults.AutoPilotNumChannels,
-      )
-      new NodeActor(nodeSpec.id, params, controller, output, router, graphView, blockchainView)
-    }
+    val honestNodes = buildHonestNodes(graph, router, output, params)
+    val delayAttackNodes = buildDelayAttackNodes(numAttackNodes, graph, router, output, params)
+    val htlcLoopAttackNodes = buildDelayAttackNodes(numAttackNodes, graph, router, output, params)
 
-    // Create attacker nodes.
-    val attackerParams = params.copy(
-      feeBase = 0,
-      feeProportionalMillionths = 0,
-      maxAcceptedHTLCs = AttackerMaxHTLCs,
-    )
-    val attackParams = AutoPilotCaptureController.AttackParams(
-      numChannels = NumAttackChannelsPerNode,
-      channelCapacity = CapacityPerAttackChannel,
-    )
-    val attackNodes = for (_ <- 1 to numAttackNodes) yield {
-      val nodeID = Util.randomUUID()
-      val graphView = new NetworkGraphView(graph)
-      val blockchainView = new BlockchainView(nodeID, blockchain)
-
-      val controller = new NaiveDelayingController(attackerParams, attackParams)
-
-      logger.info(
-        "msg" -> "Initializing attack node".toJson,
-        "nodeID" -> nodeID.toJson,
-        "budget" -> (attackParams.numChannels * attackParams.channelCapacity).toJson,
-      )
-      new NodeActor(
-        nodeID,
-        attackerParams,
-        controller,
-        output,
-        router,
-        graphView,
-        blockchainView,
-      )
-    }
-
-    val nodeMap = (nodes ++ attackNodes).map(node => node.id -> node).toMap
+    val nodeMap = (honestNodes ++ delayAttackNodes).map(node => node.id -> node).toMap
 
     // Create NewPayment events for all transactions in the spec.
     val paymentEvents = for (transactionSpec <- spec.transactions) yield {
@@ -112,6 +72,96 @@ class EnvBuilder(private val spec: SimulationSpec,
 
     val initialEvents = paymentEvents ++ openChannelEvents ++ Seq(bootstrapEnd)
     new Environment(nodeMap, initialEvents, blockchain)
+  }
+
+  private def buildHonestNodes(graph: NetworkGraph,
+                               router: MinimalFeeRouter,
+                               output: LoggingOutput,
+                               params: NodeActor.Params): List[NodeActor] = {
+    for (nodeSpec <- spec.nodes) yield {
+      val graphView = new NetworkGraphView(graph)
+      val blockchainView = new BlockchainView(nodeSpec.id, blockchain)
+      val controller = new LndAutopilotController(
+        params,
+        Math.max(LndDefaults.AutoPilotMinChannelSize, EclairDefaults.MinFundingAmount),
+        LndDefaults.AutoPilotNumChannels,
+      )
+      new NodeActor(nodeSpec.id, params, controller, output, router, graphView, blockchainView)
+    }
+  }
+
+  private def buildDelayAttackNodes(numNodes: BlockDelta,
+                                    graph: NetworkGraph,
+                                    router: MinimalFeeRouter,
+                                    output: LoggingOutput,
+                                    params: NodeActor.Params): IndexedSeq[NodeActor] = {
+    val attackerParams = params.copy(
+      feeBase = 0,
+      feeProportionalMillionths = 0,
+      maxAcceptedHTLCs = AttackerMaxHTLCs,
+    )
+    val attackParams = AutoPilotCaptureController.AttackParams(
+      numChannels = NumAttackChannelsPerNode,
+      channelCapacity = CapacityPerAttackChannel,
+    )
+    for (_ <- 1 to numNodes) yield {
+      val nodeID = Util.randomUUID()
+      val graphView = new NetworkGraphView(graph)
+      val blockchainView = new BlockchainView(nodeID, blockchain)
+
+      val controller = new NaiveDelayingController(attackerParams, attackParams)
+
+      logger.info(
+        "msg" -> "Initializing naive delaying attack node".toJson,
+        "nodeID" -> nodeID.toJson,
+        "budget" -> (attackParams.numChannels * attackParams.channelCapacity).toJson,
+      )
+      new NodeActor(
+        nodeID,
+        attackerParams,
+        controller,
+        output,
+        router,
+        graphView,
+        blockchainView,
+      )
+    }
+  }
+
+  private def buildHTLCLoopAttackNodes(numNodes: BlockDelta,
+                                       graph: NetworkGraph,
+                                       router: MinimalFeeRouter,
+                                       output: LoggingOutput,
+                                       params: NodeActor.Params): IndexedSeq[NodeActor] = {
+    val attackerParams = params.copy(
+      maxAcceptedHTLCs = AttackerMaxHTLCs,
+    )
+    val attackParams = AutoPilotCaptureController.AttackParams(
+      numChannels = NumAttackChannelsPerNode,
+      channelCapacity = CapacityPerAttackChannel,
+    )
+    for (_ <- 1 to numNodes) yield {
+      val nodeID = Util.randomUUID()
+      val graphView = new NetworkGraphView(graph)
+      val blockchainView = new BlockchainView(nodeID, blockchain)
+
+      val controller = new NaiveDelayingController(attackerParams, attackParams)
+
+      logger.info(
+        "msg" -> "Initializing HTLC exhaustion loop attack node".toJson,
+        "nodeID" -> nodeID.toJson,
+        "budget" -> (attackParams.numChannels * attackParams.channelCapacity).toJson,
+      )
+      new NodeActor(
+        nodeID,
+        attackerParams,
+        controller,
+        output,
+        router,
+        graphView,
+        blockchainView,
+      )
+    }
   }
 }
 
