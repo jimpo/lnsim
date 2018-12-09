@@ -176,20 +176,7 @@ class NodeActor(val id: NodeID,
     val blockNumber = maybeBlockNumber.getOrElse(blockchain.blockNumber)
     if (!blockchain.subscribeAction(blockNumber, action)) {
       // If we failed to register the subscription, do the action immediately.
-      if (maybeBlockNumber.isDefined) {
-        logger.info(
-          "msg" -> "Failed to schedule action".toJson,
-          "blocks" -> (blockNumber - maybeBlockNumber.get).toJson,
-          "minExpiry" -> params.minExpiry.toJson,
-        )
-      }
       handleAction(action)
-    } else {
-      logger.info(
-        "msg" -> "Scheduled action in the future".toJson,
-        "blocks" -> (blockNumber - blockchain.blockNumber).toJson,
-        "action" -> action.toString.toJson,
-      )
     }
   }
 

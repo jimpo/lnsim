@@ -16,8 +16,8 @@ class DefaultController(private val params: NodeActor.Params) extends NodeContro
       return (Some(ExpiryTooFar), None)
     }
 
-    val requiredFee = params.feeBase + nextHop.amount * params.feeProportionalMillionths
-    if (nextHop.amount - prevHop.amount < requiredFee) {
+    val requiredFee = params.feeBase + nextHop.amount * params.feeProportionalMillionths / 1000000
+    if (prevHop.amount - nextHop.amount < requiredFee) {
       return (Some(FeeInsufficient), None)
     }
 

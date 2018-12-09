@@ -141,7 +141,7 @@ object EnvBuilder {
     */
   val OffChainPaymentTimeout: TimeDelta = secondsToTimeDelta(30 * 60)
 
-  val NumAttackChannelsPerNode: Int = 10000
+  val NumAttackChannelsPerNode: Int = 1000
   val CapacityPerAttackChannel: Value = EclairDefaults.MinFundingAmount
   val AttackerMaxHTLCs: Int = 100
 }
