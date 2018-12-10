@@ -1,7 +1,7 @@
-package edu.stanford.cs.lnsim.routing
+package edu.stanford.cs.lnsim.graph
 
 import edu.stanford.cs.lnsim.{ChannelID, NodeID}
-import edu.stanford.cs.lnsim.graph.{Channel, NetworkGraph, Node}
+import org.jgrapht.graph.Multigraph
 
 /**
   * This represents a specific node's view of the network graph, including the graph structure as
@@ -18,4 +18,8 @@ class NetworkGraphView(private val graph: NetworkGraph) {
   def banChannel(channel: Channel): Unit = _constraints = constraints.banChannel(channel)
 
   def constraints: RouteConstraints = _constraints
+
+  def jgraph(localConstraints: RouteConstraints, weighting: Channel => Double)
+  : Multigraph[NodeID, ChannelID] =
+    graph.jgraph(constraints + localConstraints, weighting)
 }

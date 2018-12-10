@@ -1,6 +1,6 @@
 package edu.stanford.cs.lnsim.node
 
-import edu.stanford.cs.lnsim.routing.NetworkGraphView
+import edu.stanford.cs.lnsim.graph.NetworkGraphView
 import edu.stanford.cs.lnsim.{NodeID, Util, Value}
 
 class LndAutopilotController(params: NodeActor.Params,

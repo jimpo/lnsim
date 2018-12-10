@@ -1,7 +1,7 @@
 package edu.stanford.cs.lnsim.node
 import edu.stanford.cs.lnsim
 import edu.stanford.cs.lnsim._
-import edu.stanford.cs.lnsim.routing.NetworkGraphView
+import edu.stanford.cs.lnsim.graph.NetworkGraphView
 
 class DefaultController(private val params: NodeActor.Params) extends NodeController {
   override def forwardHTLC(prevHop: lnsim.HTLC, nextHop: lnsim.HTLC, blockNumber: BlockNumber)

@@ -4,10 +4,10 @@ import edu.stanford.cs.lnsim.log.StructuredLogging
 import edu.stanford.cs.lnsim.{ChannelID, NodeID}
 
 import scala.collection.mutable
-
 import spray.json._
 import spray.json.DefaultJsonProtocol._
 import edu.stanford.cs.lnsim.JSONProtocol._
+import org.jgrapht.graph.{Multigraph, WeightedMultigraph}
 
 /**
   * The global network graph. The Lightning gossip protocol defined in BOLT 7 is designed so all
@@ -59,4 +59,18 @@ class NetworkGraph extends StructuredLogging {
 
   def node(id: NodeID): Option[Node] = nodes.get(id)
   def nodeIterator: Iterator[Node] = nodes.valuesIterator
+
+  def jgraph(constraints: RouteConstraints, weighting: Channel => Double)
+  : Multigraph[NodeID, ChannelID] = {
+    val jgraph = new WeightedMultigraph[NodeID, ChannelID](null, null)
+    for (node <- nodeIterator ;
+         channel <- node.channelsIterator
+         if !channel.disabled && constraints.allowChannel(channel)) {
+      jgraph.addVertex(channel.source)
+      jgraph.addVertex(channel.target)
+      jgraph.addEdge(channel.source, channel.target, channel.id)
+      jgraph.setEdgeWeight(channel.id, weighting(channel))
+    }
+    jgraph
+  }
 }

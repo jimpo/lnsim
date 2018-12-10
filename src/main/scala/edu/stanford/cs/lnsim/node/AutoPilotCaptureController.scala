@@ -1,7 +1,7 @@
 package edu.stanford.cs.lnsim.node
 
 import AutoPilotCaptureController._
-import edu.stanford.cs.lnsim.routing.NetworkGraphView
+import edu.stanford.cs.lnsim.graph.NetworkGraphView
 import edu.stanford.cs.lnsim.{NodeID, Value}
 
 import scala.util.Random

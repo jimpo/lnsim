@@ -1,6 +1,6 @@
 package edu.stanford.cs.lnsim.routing
 
-import edu.stanford.cs.lnsim.graph.Channel
+import edu.stanford.cs.lnsim.graph.{Channel, NetworkGraphView, RouteConstraints}
 import edu.stanford.cs.lnsim.PaymentInfo
 
 trait Router {

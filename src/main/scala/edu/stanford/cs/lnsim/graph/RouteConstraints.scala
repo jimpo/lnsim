@@ -1,7 +1,7 @@
-package edu.stanford.cs.lnsim.routing
+package edu.stanford.cs.lnsim.graph
 
 import edu.stanford.cs.lnsim.NodeID
-import edu.stanford.cs.lnsim.graph.Channel
+import edu.stanford.cs.lnsim.routing.ChannelKey
 
 /**
   * Defines restrictions on which routes a router may select. Route constraints are build up

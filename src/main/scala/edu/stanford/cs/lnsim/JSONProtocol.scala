@@ -21,7 +21,7 @@ object JSONProtocol {
     }
   }
 
-  val ChannelUpdateFormat : RootJsonFormat[Channel] = jsonFormat10(Channel)
+  val ChannelUpdateFormat : RootJsonFormat[Channel] = jsonFormat11(Channel)
 
   implicit object NodeFormat extends JsonWriter[NodeActor] {
     override def write(n: NodeActor) = JsObject("id" -> JsString(n.id.toString))

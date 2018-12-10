@@ -1,8 +1,8 @@
 package edu.stanford.cs.lnsim
-import edu.stanford.cs.lnsim.graph.NetworkGraph
+import edu.stanford.cs.lnsim.graph.{NetworkGraph, NetworkGraphView}
 import edu.stanford.cs.lnsim.log.StructuredLogging
 import edu.stanford.cs.lnsim.node._
-import edu.stanford.cs.lnsim.routing.{MinimalFeeRouter, NetworkGraphView}
+import edu.stanford.cs.lnsim.routing.MinimalFeeRouter
 import edu.stanford.cs.lnsim.spec.SimulationSpec
 import spray.json._
 import spray.json.DefaultJsonProtocol._
@@ -39,10 +39,10 @@ class EnvBuilder(private val spec: SimulationSpec,
 
     // Create NodeActors for all nodes in the spec.
     val honestNodes = buildHonestNodes(graph, router, output, params)
-    val delayAttackNodes = buildDelayAttackNodes(numAttackNodes, graph, router, output, params)
-    val htlcLoopAttackNodes = buildDelayAttackNodes(numAttackNodes, graph, router, output, params)
+    // val delayAttackNodes = buildDelayAttackNodes(numAttackNodes, graph, router, output, params)
+    val htlcLoopAttackNodes = buildHTLCLoopAttackNodes(numAttackNodes, graph, router, output, params)
 
-    val nodeMap = (honestNodes ++ delayAttackNodes).map(node => node.id -> node).toMap
+    val nodeMap = (honestNodes ++ htlcLoopAttackNodes).map(node => node.id -> node).toMap
 
     // Create NewPayment events for all transactions in the spec.
     val paymentEvents = for (transactionSpec <- spec.transactions) yield {
@@ -94,7 +94,7 @@ class EnvBuilder(private val spec: SimulationSpec,
                                     graph: NetworkGraph,
                                     router: MinimalFeeRouter,
                                     output: LoggingOutput,
-                                    params: NodeActor.Params): IndexedSeq[NodeActor] = {
+                                    params: NodeActor.Params): Seq[NodeActor] = {
     val attackerParams = params.copy(
       feeBase = 0,
       feeProportionalMillionths = 0,
@@ -132,7 +132,7 @@ class EnvBuilder(private val spec: SimulationSpec,
                                        graph: NetworkGraph,
                                        router: MinimalFeeRouter,
                                        output: LoggingOutput,
-                                       params: NodeActor.Params): IndexedSeq[NodeActor] = {
+                                       params: NodeActor.Params): Seq[NodeActor] = {
     val attackerParams = params.copy(
       maxAcceptedHTLCs = AttackerMaxHTLCs,
     )
@@ -140,12 +140,14 @@ class EnvBuilder(private val spec: SimulationSpec,
       numChannels = NumAttackChannelsPerNode,
       channelCapacity = CapacityPerAttackChannel,
     )
-    for (_ <- 1 to numNodes) yield {
-      val nodeID = Util.randomUUID()
+    val attackNodeIDs = (1 to numNodes).map(_ => Util.randomUUID()).toSet
+    val nodes = for (nodeID <- attackNodeIDs.iterator) yield {
       val graphView = new NetworkGraphView(graph)
       val blockchainView = new BlockchainView(nodeID, blockchain)
 
-      val controller = new NaiveDelayingController(attackerParams, attackParams)
+      val controller = new HTLCExhaustionController(
+        nodeID, graphView, attackerParams, attackParams, attackNodeIDs
+      )
 
       logger.info(
         "msg" -> "Initializing HTLC exhaustion loop attack node".toJson,
@@ -162,6 +164,7 @@ class EnvBuilder(private val spec: SimulationSpec,
         blockchainView,
       )
     }
+    nodes.toSeq
   }
 }
 

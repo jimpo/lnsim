@@ -1,7 +1,7 @@
 package edu.stanford.cs.lnsim.node
 
 import edu.stanford.cs.lnsim._
-import edu.stanford.cs.lnsim.routing.NetworkGraphView
+import edu.stanford.cs.lnsim.graph.NetworkGraphView
 
 trait NodeController {
   /** Decide whether to forward an HTLC or reject it.

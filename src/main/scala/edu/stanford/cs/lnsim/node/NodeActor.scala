@@ -2,9 +2,9 @@ package edu.stanford.cs.lnsim.node
 
 import edu.stanford.cs.lnsim._
 import edu.stanford.cs.lnsim.des.{TimeDelta, Timestamp}
-import edu.stanford.cs.lnsim.graph.Channel
+import edu.stanford.cs.lnsim.graph.{Channel, NetworkGraphView, RouteConstraints}
 import edu.stanford.cs.lnsim.log.StructuredLogging
-import edu.stanford.cs.lnsim.routing.{NetworkGraphView, RouteConstraints, Router}
+import edu.stanford.cs.lnsim.routing.Router
 import edu.stanford.cs.lnsim.JSONProtocol._
 import spray.json.DefaultJsonProtocol._
 import spray.json._
@@ -514,6 +514,7 @@ class NodeActor(val id: NodeID,
       lastUpdate = timestamp,
       disabled = disabled,
       expiryDelta = params.expiryDelta,
+      capacity = capacity,
       htlcMinimum = theirChannelParams.htlcMinimum,
       htlcMaximum = math.min(theirChannelParams.maxHTLCInFlight, capacity),
       feeBase = params.feeBase,

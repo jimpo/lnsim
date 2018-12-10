@@ -13,6 +13,7 @@ package object graph {
                      lastUpdate: Timestamp,
                      disabled: Boolean,
                      expiryDelta: BlockDelta,
+                     capacity: Value,
                      htlcMinimum: Value,
                      htlcMaximum: Value,
                      feeBase: Value,

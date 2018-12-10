@@ -1,7 +1,7 @@
 package edu.stanford.cs.lnsim.routing
 
 import edu.stanford.cs.lnsim._
-import edu.stanford.cs.lnsim.graph.{Channel, Node}
+import edu.stanford.cs.lnsim.graph.{Channel, NetworkGraphView, Node, RouteConstraints}
 
 import scala.collection.mutable
 

@@ -3,9 +3,8 @@ package edu.stanford.cs
 import java.util.UUID
 
 import edu.stanford.cs.lnsim.des.Timestamp
-import edu.stanford.cs.lnsim.graph.{Channel, Node}
+import edu.stanford.cs.lnsim.graph.{Channel, Node, RouteConstraints}
 import edu.stanford.cs.lnsim.node.NodeActor
-import edu.stanford.cs.lnsim.routing.RouteConstraints
 
 package object lnsim {
   type NodeID = UUID
