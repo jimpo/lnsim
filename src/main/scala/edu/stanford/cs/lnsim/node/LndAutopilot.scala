@@ -3,10 +3,8 @@ package edu.stanford.cs.lnsim.node
 import edu.stanford.cs.lnsim.graph.NetworkGraphView
 import edu.stanford.cs.lnsim.{NodeID, Util, Value}
 
-class LndAutopilotController(params: NodeActor.Params,
-                             private val autoPilotMinChannelSize: Value,
-                             private val autoPilotNumChannels: Int)
-  extends DefaultController(params) {
+class LndAutopilot(private val numChannels: Int,
+                   private val minChannelSize: Value) {
 
   /** This algorithm is based off of LND's autopilot heuristic, which uses preferential attachment
     * to determine which nodes to open channels to. The algorithm is to:
@@ -21,9 +19,9 @@ class LndAutopilotController(params: NodeActor.Params,
     *
     * See https://github.com/lightningnetwork/lnd/blob/v0.5-beta/autopilot/prefattach.go#L145
     */
-  override def autoConnect(sourceNodeID: NodeID,
-                           budget: Value,
-                           graphView: NetworkGraphView): Seq[(NodeID, Value)] = {
+  def newChannels(sourceNodeID: NodeID,
+                  budget: Value,
+                  graphView: NetworkGraphView): Seq[(NodeID, Value)] = {
     // Count the number of channels for each non-banned node. These are the weights of the
     // PMF (probability mass function) of the distribution.
     //
@@ -39,11 +37,11 @@ class LndAutopilotController(params: NodeActor.Params,
       nodeWeights(i) = (nodeID, weight + nodeWeights(i - 1)._2)
     }
 
-    val channelOpenAmount = Math.max(budget / autoPilotNumChannels, autoPilotMinChannelSize)
+    val channelOpenAmount = Math.max(budget / numChannels, minChannelSize)
 
     var remainingBudget = budget
     var channels: List[(NodeID, Value)] = Nil
-    while (remainingBudget >= autoPilotMinChannelSize) {
+    while (remainingBudget >= minChannelSize) {
       val targetNodeID = Util.sampleCMF(nodeWeights)
       if (targetNodeID != sourceNodeID) {
         val capacity = Math.min(remainingBudget, channelOpenAmount)

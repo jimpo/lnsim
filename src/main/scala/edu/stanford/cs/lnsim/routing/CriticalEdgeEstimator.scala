@@ -1,5 +1,6 @@
 package edu.stanford.cs.lnsim.routing
 
+import edu.stanford.cs.lnsim.des.{TimeDelta, Timestamp}
 import edu.stanford.cs.lnsim.{ChannelID, NodeID, Util}
 import edu.stanford.cs.lnsim.graph.{Channel, NetworkGraphView, RouteConstraints}
 import org.jgrapht.alg.flow.DinicMFImpl
@@ -20,10 +21,16 @@ import scala.util.Random
   * and one the sink, and solving for the min cut between the partitions. It runs some number of
   * trials and ranks the channels by the number of min cuts that they appear in.
   */
-class CriticalEdgeEstimator(private val weighting: Channel => Double) {
+class CriticalEdgeEstimator(private val analysisInterval: TimeDelta,
+                            private val weighting: Channel => Double) {
   import CriticalEdgeEstimator._
 
-  def analyze(graphView: NetworkGraphView, localConstraints: RouteConstraints): Analysis = {
+  var lastAnalysis: Analysis = Analysis(0, 0, 0, Seq())
+  var lastAnalysisTime: Timestamp = 0
+
+  def analyze(timestamp: Timestamp,
+              graphView: NetworkGraphView,
+              localConstraints: RouteConstraints): Analysis = {
     val jgraph = graphView.jgraph(localConstraints, weighting)
     val nodeCount = jgraph.vertexSet.size
     val edgeCount = jgraph.edgeSet.size
@@ -37,7 +44,19 @@ class CriticalEdgeEstimator(private val weighting: Channel => Double) {
       }
     }
     val coreChannels = Await.result(edgeCounts, Duration.Inf).toList.sortBy(-_._2)
-    Analysis(nodeCount, edgeCount, NumTrials, coreChannels)
+    lastAnalysis = Analysis(nodeCount, edgeCount, NumTrials, coreChannels)
+    lastAnalysisTime = timestamp
+    lastAnalysis
+  }
+
+  def analyzeIfNecessary(timestamp: Timestamp,
+                         graphView: NetworkGraphView,
+                         localConstraints: RouteConstraints): Analysis = {
+    if (lastAnalysisTime + analysisInterval < timestamp) {
+      analyze(timestamp, graphView, localConstraints)
+    } else {
+      lastAnalysis
+    }
   }
 
   private def trial(jgraph: Multigraph[NodeID, ChannelID]): Seq[ChannelID] = {
@@ -75,7 +94,7 @@ class CriticalEdgeEstimator(private val weighting: Channel => Double) {
 }
 
 object CriticalEdgeEstimator {
-  private val NumTrials: Int = 20
+  private val NumTrials: Int = 100
 
   case class Analysis(nodeCount: Int,
                       edgeCount: Int,

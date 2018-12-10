@@ -1,6 +1,6 @@
 package edu.stanford.cs.lnsim.graph
 
-import edu.stanford.cs.lnsim.NodeID
+import edu.stanford.cs.lnsim.{ChannelID, NodeID}
 import edu.stanford.cs.lnsim.routing.ChannelKey
 
 /**
@@ -19,6 +19,9 @@ class RouteConstraints private (private val ignoreNodes: Set[NodeID],
 
   def banChannel(channel: Channel): RouteConstraints =
     new RouteConstraints(ignoreNodes, ignoreChannels + ChannelKey(channel.id, channel.source))
+
+  def banChannelFromSource(channelID: ChannelID, sourceID: NodeID): RouteConstraints =
+    new RouteConstraints(ignoreNodes, ignoreChannels + ChannelKey(channelID, sourceID))
 
   def allowNode(nodeID: NodeID): Boolean = !ignoreNodes.contains(nodeID)
 

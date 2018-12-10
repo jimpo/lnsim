@@ -13,7 +13,6 @@ import scala.collection.mutable
 
 class NodeActor(val id: NodeID,
                 val params: NodeActor.Params,
-                private val controller: NodeController,
                 private val output: ObservableOutput,
                 private val router: Router,
                 private val graphView: NetworkGraphView,
@@ -146,10 +145,11 @@ class NodeActor(val id: NodeID,
     ctx.sendMessage(channel.source, UpdateFulfillHTLC(route))
   }
 
-  protected def processFinalHopHTLC(incomingHTLC: HTLC, finalHop: FinalHop, backwardsRoute: BackwardRoutingPacket)
+  protected def processFinalHopHTLC(incomingHTLC: HTLC,
+                                    finalHop: FinalHop,
+                                    backwardsRoute: BackwardRoutingPacket)
                                    (implicit ctx: NodeContext): Unit = {
-    val (maybeError, maybeBlockNumber) =
-      controller.acceptHTLC(incomingHTLC, finalHop, blockchain.blockNumber)
+    val (maybeError, maybeBlockNumber) = decideAcceptHTLC(incomingHTLC, finalHop)
     val action = maybeError match {
       case Some(error) => FailHTLC(backwardsRoute, error, None)
       case None => FulfillHTLC(backwardsRoute)
@@ -165,8 +165,7 @@ class NodeActor(val id: NodeID,
   private def processIntermediateHopHTLC(prevHop: HTLC, route: ForwardRoutingPacket)
                                         (implicit ctx: NodeContext): Unit = {
     val nextHop :: restHops = route.hops
-    val (maybeError, maybeBlockNumber) =
-      controller.forwardHTLC(prevHop, nextHop, blockchain.blockNumber)
+    val (maybeError, maybeBlockNumber) = decideForwardHTLC(prevHop, nextHop)
     val action = maybeError match {
       case Some(error) =>
         FailHTLC(route.backwardRoute, error, Some(nextHop.channel))
@@ -352,7 +351,16 @@ class NodeActor(val id: NodeID,
     val paymentElapsedTime = ctx.timestamp - pendingPayment.timestamp
     val maybeRoutingPacket = if (paymentElapsedTime < params.offChainPaymentTimeout) {
       ctx.advanceTimestamp(RoutingTime)
-      route(paymentInfo, pendingPayment.constraints, paymentIDKnown = true)
+      // Avoid channels that we know have insufficient available capacity.
+      val localConstraints = channels.foldLeft(pendingPayment.constraints) { (constraints, kv) => {
+        val (channelID, channel) = kv
+        if (channel.ourAvailableBalance < paymentInfo.amount) {
+          constraints.banChannelFromSource(channelID, id)
+        } else {
+          constraints
+        }
+      }}
+      route(paymentInfo, localConstraints, paymentIDKnown = true)
     } else {
       // If it has been too long since the payment was first attempted, stop trying to deliver it
       // off-chain and open a direct channel.
@@ -603,17 +611,74 @@ class NodeActor(val id: NodeID,
     case FailHTLC(route, error, channel) => failHTLC(route, error, channel)
     case FulfillHTLC(route) => fulfillHTLC(route)
     case OpenNewChannels(budget) => openNewChannels(budget)
+    case _ =>
   }
 
+  /** Decide which new channels to open. The total capacity of the channels requested must not
+    * exceed the budget given as a parameter.
+    *
+    * @param budget The maximum allowed capacity of the channels requested.
+    */
   def openNewChannels(budget: Value)(implicit ctx: NodeContext): Unit = {
-    val channelOpenFee = params.channelOpenWeight * blockchain.feePerWeight
-    for ((targetNodeID, capacity) <- controller.autoConnect(id, budget, graphView)) {
+    val autoConnect = new LndAutopilot(
+      params.autoConnectNumChannels, params.autoConnectMinChannelSize
+    )
+    for ((targetNodeID, capacity) <- autoConnect.newChannels(id, budget, graphView)) {
       initiateChannelOpen(targetNodeID, capacity, maybePendingPayment = None)
     }
   }
 
-  def handleBootstrapEnd()(implicit ctx: NodeContext): Unit =
-    controller.bootstrapEndActions().foreach(handleAction)
+  def handleBootstrapEnd()(implicit ctx: NodeContext): Unit = ()
+
+  /** Decide whether to forward an HTLC or reject it.
+    *
+    * @return The first element is Some(error) if the HTLC should be failed and None if it is to
+    *     be forwarded. The second element is Some(BlockNumber) if the response should be delayed
+    *     until the specified block or None if it is to be sent immediately.
+    */
+  def decideForwardHTLC(prevHop: HTLC, nextHop: HTLC)
+  : (Option[RoutingError], Option[BlockNumber]) = {
+    if (prevHop.expiry - nextHop.expiry < params.expiryDelta) {
+      return (Some(IncorrectExpiryDelta), None)
+    }
+    if (nextHop.expiry - blockchain.blockNumber < params.minExpiry) {
+      return (Some(ExpiryTooSoon), None)
+    }
+    if (nextHop.expiry - blockchain.blockNumber > params.maxExpiry) {
+      return (Some(ExpiryTooFar), None)
+    }
+
+    val requiredFee = params.feeBase + nextHop.amount * params.feeProportionalMillionths / 1000000
+    if (prevHop.amount - nextHop.amount < requiredFee) {
+      return (Some(FeeInsufficient), None)
+    }
+
+    (None, None)
+  }
+
+  /** Decide whether to accept an HTLC terminating at this node or reject it.
+    *
+    * @return The first element is Some(error) if the HTLC should be failed and None if it is to
+    *     be forwarded. The second element is Some(BlockNumber) if the response should be delayed
+    *     until the specified block or None if it is to be sent immediately.
+    */
+  def decideAcceptHTLC(htlc: HTLC, finalHop: FinalHop)
+  : (Option[RoutingError], Option[BlockNumber]) = {
+    if (!finalHop.paymentIDKnown) {
+      return (Some(UnknownPaymentHash), None)
+    }
+    if (htlc.amount < finalHop.amount) {
+      return (Some(FinalIncorrectHTLCAmount(htlc.amount)), None)
+    }
+    if (htlc.expiry < finalHop.expiry) {
+      return (Some(FinalIncorrectExpiry(htlc.expiry)), None)
+    }
+    if (finalHop.expiry < blockchain.blockNumber + params.finalExpiryDelta) {
+      return (Some(FinalExpiryTooSoon), None)
+    }
+
+    (None, None)
+  }
 }
 
 object NodeActor {
@@ -641,6 +706,8 @@ object NodeActor {
                     maxExpiry: BlockDelta,
                     channelOpenWeight: Int,
                     capacityMultiplier: Int,
+                    autoConnectNumChannels: Int,
+                    autoConnectMinChannelSize: Value,
                     offChainPaymentTimeout: TimeDelta) {
 
     def channelParams(capacity: Value): ChannelParams =

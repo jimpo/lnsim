@@ -2,7 +2,7 @@ package edu.stanford.cs.lnsim
 import edu.stanford.cs.lnsim.graph.{NetworkGraph, NetworkGraphView}
 import edu.stanford.cs.lnsim.log.StructuredLogging
 import edu.stanford.cs.lnsim.node._
-import edu.stanford.cs.lnsim.routing.MinimalFeeRouter
+import edu.stanford.cs.lnsim.routing.{CriticalEdgeEstimator, MinimalFeeRouter}
 import edu.stanford.cs.lnsim.spec.SimulationSpec
 import spray.json._
 import spray.json.DefaultJsonProtocol._
@@ -34,6 +34,8 @@ class EnvBuilder(private val spec: SimulationSpec,
       EclairDefaults.MaxExpiry,
       FundingTransactionWeight,
       CapacityMultiplier,
+      LndDefaults.AutoPilotNumChannels,
+      Math.max(LndDefaults.AutoPilotMinChannelSize, EclairDefaults.MinFundingAmount),
       OffChainPaymentTimeout,
     )
 
@@ -81,12 +83,7 @@ class EnvBuilder(private val spec: SimulationSpec,
     for (nodeSpec <- spec.nodes) yield {
       val graphView = new NetworkGraphView(graph)
       val blockchainView = new BlockchainView(nodeSpec.id, blockchain)
-      val controller = new LndAutopilotController(
-        params,
-        Math.max(LndDefaults.AutoPilotMinChannelSize, EclairDefaults.MinFundingAmount),
-        LndDefaults.AutoPilotNumChannels,
-      )
-      new NodeActor(nodeSpec.id, params, controller, output, router, graphView, blockchainView)
+      new NodeActor(nodeSpec.id, params, output, router, graphView, blockchainView)
     }
   }
 
@@ -98,28 +95,23 @@ class EnvBuilder(private val spec: SimulationSpec,
     val attackerParams = params.copy(
       feeBase = 0,
       feeProportionalMillionths = 0,
-      maxAcceptedHTLCs = AttackerMaxHTLCs,
+      autoConnectNumChannels = NumAttackChannelsPerNode,
     )
-    val attackParams = AutoPilotCaptureController.AttackParams(
-      numChannels = NumAttackChannelsPerNode,
-      channelCapacity = CapacityPerAttackChannel,
-    )
+    val attackParams = NaiveDelayingAttacker.AttackParams(CapacityPerAttackChannel)
     for (_ <- 1 to numNodes) yield {
       val nodeID = Util.randomUUID()
       val graphView = new NetworkGraphView(graph)
       val blockchainView = new BlockchainView(nodeID, blockchain)
 
-      val controller = new NaiveDelayingController(attackerParams, attackParams)
-
       logger.info(
         "msg" -> "Initializing naive delaying attack node".toJson,
         "nodeID" -> nodeID.toJson,
-        "budget" -> (attackParams.numChannels * attackParams.channelCapacity).toJson,
+        "budget" -> (params.autoConnectNumChannels * attackParams.autoConnectChannelCapacity).toJson,
       )
-      new NodeActor(
+      new NaiveDelayingAttacker(
         nodeID,
         attackerParams,
-        controller,
+        attackParams,
         output,
         router,
         graphView,
@@ -133,31 +125,23 @@ class EnvBuilder(private val spec: SimulationSpec,
                                        router: MinimalFeeRouter,
                                        output: LoggingOutput,
                                        params: NodeActor.Params): Seq[NodeActor] = {
-    val attackerParams = params.copy(
-      maxAcceptedHTLCs = AttackerMaxHTLCs,
-    )
-    val attackParams = AutoPilotCaptureController.AttackParams(
-      numChannels = NumAttackChannelsPerNode,
-      channelCapacity = CapacityPerAttackChannel,
-    )
     val attackNodeIDs = (1 to numNodes).map(_ => Util.randomUUID()).toSet
+    val attackParams = HTLCExhaustionAttacker.AttackParams(CapacityPerAttackChannel, attackNodeIDs)
+    val edgeEstimator = new CriticalEdgeEstimator(AttackerAnalysisInterval, _channel => 1.0)
     val nodes = for (nodeID <- attackNodeIDs.iterator) yield {
       val graphView = new NetworkGraphView(graph)
       val blockchainView = new BlockchainView(nodeID, blockchain)
 
-      val controller = new HTLCExhaustionController(
-        nodeID, graphView, attackerParams, attackParams, attackNodeIDs
-      )
-
       logger.info(
         "msg" -> "Initializing HTLC exhaustion loop attack node".toJson,
         "nodeID" -> nodeID.toJson,
-        "budget" -> (attackParams.numChannels * attackParams.channelCapacity).toJson,
+        "budget" -> (params.autoConnectNumChannels * attackParams.autoConnectChannelCapacity).toJson,
       )
-      new NodeActor(
+      new HTLCExhaustionAttacker(
         nodeID,
-        attackerParams,
-        controller,
+        params,
+        attackParams,
+        edgeEstimator,
         output,
         router,
         graphView,
@@ -196,5 +180,5 @@ object EnvBuilder {
 
   val NumAttackChannelsPerNode: Int = 1000
   val CapacityPerAttackChannel: Value = EclairDefaults.MinFundingAmount
-  val AttackerMaxHTLCs: Int = 100
+  val AttackerAnalysisInterval: TimeDelta = secondsToTimeDelta(30 * 60)
 }
