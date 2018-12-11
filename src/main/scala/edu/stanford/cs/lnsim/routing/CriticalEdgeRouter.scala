@@ -4,12 +4,12 @@ import edu.stanford.cs.lnsim.graph.{Channel, NetworkGraphView, RouteConstraints}
 import edu.stanford.cs.lnsim.routing.CriticalEdgeRouter.RandomWalkPath
 import edu.stanford.cs.lnsim._
 import edu.stanford.cs.lnsim.log.StructuredLogging
-
 import spray.json._
 import spray.json.DefaultJsonProtocol._
 import JSONProtocol._
 
 import scala.annotation.tailrec
+import scala.util.Random
 
 class CriticalEdgeRouter(lastMileRouter: Router,
                          edgeEstimator: CriticalEdgeEstimator,
@@ -37,12 +37,6 @@ class CriticalEdgeRouter(lastMileRouter: Router,
       return finalPath.channels.reverse
     }
 
-    logger.info(
-      "msg" -> "Found a random walk path".toJson,
-      "paymentID" -> paymentInfo.paymentID.toJson,
-      "length" -> finalPath.channels.length.toJson,
-    )
-
     completeRandomWalkPath(graph, finalPath, paymentInfo)
   }
 
@@ -53,13 +47,15 @@ class CriticalEdgeRouter(lastMileRouter: Router,
                          graph: NetworkGraphView,
                          path: RandomWalkPath): RandomWalkPath = {
     val channels = graph.node(path.lastNode).map(_.channelsIterator).getOrElse(Iterator.empty)
-    val bestChannel = try {
-      channels
-        .filter { channel => path.constraints.allowChannel(channel) }
-        .maxBy { channel => channelValues.getOrElse(channel.id, 0) }
-    } catch {
-      // In case there are no possible next channels
-      case e: UnsupportedOperationException if e.getMessage == "empty.maxBy" => return path
+    val maybeBestChannel = channels
+      .filter { channel => path.constraints.allowChannel(channel) }
+      .foldLeft(new IncrementalSampler[Channel](Random.nextInt())) {
+        (sampler, channel) => sampler.update(channel, channelValues.getOrElse(channel.id, 0))
+      }
+      .value
+    val bestChannel = maybeBestChannel match {
+      case Some(channel) => channel
+      case None => return path
     }
 
     val newConstraints = if (bestChannel.source == targetNode) {

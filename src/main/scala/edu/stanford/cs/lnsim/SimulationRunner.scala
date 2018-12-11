@@ -29,7 +29,7 @@ object SimulationRunner extends App {
         spec = spec,
         blockchain = blockchain
       )
-      val env = graphBuilder.build(config.numAttackNodes)
+      val env = graphBuilder.build(config.numDelayAttackNodes, config.numLoopAttackNodes)
       val simulation = new Simulation[Environment](env, secondsToTimeDelta(config.duration))
 
       Signal.handle(new Signal("INT"), _ => simulation.stop())

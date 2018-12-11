@@ -13,7 +13,7 @@ class EnvBuilder(private val spec: SimulationSpec,
                  private val blockchain: Blockchain) extends StructuredLogging {
   import EnvBuilder._
 
-  def build(numAttackNodes: Int = 0): Environment = {
+  def build(numDelayAttackNodes: Int = 0, numLoopAttackNodes: Int = 0): Environment = {
     val graph = new NetworkGraph()
     val router = new MinimalFeeRouter(MaximumRoutingFee, MaxRoutingHops, EclairDefaults.MaxExpiry)
     val output = new LoggingOutput()
@@ -41,10 +41,11 @@ class EnvBuilder(private val spec: SimulationSpec,
 
     // Create NodeActors for all nodes in the spec.
     val honestNodes = buildHonestNodes(graph, router, output, params)
-    // val attackNodes = buildDelayAttackNodes(numAttackNodes, graph, router, output, params)
-    val attackNodes = buildHTLCLoopAttackNodes(numAttackNodes, graph, router, output, params)
+    val delayAttackNodes = buildDelayAttackNodes(numDelayAttackNodes, graph, router, output, params)
+    val loopAttackNodes = buildHTLCLoopAttackNodes(numLoopAttackNodes, graph, router, output, params)
 
-    val nodeMap = (honestNodes ++ attackNodes).map(node => node.id -> node).toMap
+    val nodeMap = (honestNodes ++ delayAttackNodes ++ loopAttackNodes)
+      .map(node => node.id -> node).toMap
 
     // Create NewPayment events for all transactions in the spec.
     val paymentEvents = for (transactionSpec <- spec.transactions) yield {
@@ -71,7 +72,7 @@ class EnvBuilder(private val spec: SimulationSpec,
 
       (channelBudgetSpec.timestamp, events.OpenChannels(node, channelBudgetSpec.amount))
     }
-    val bootstrapEnd = (spec.startTime, events.BootstrapEnd())
+    val bootstrapEnd = (spec.startTime - secondsToTimeDelta(60 * 60), events.BootstrapEnd())
 
     val initialEvents = paymentEvents ++ openChannelEvents ++ Seq(bootstrapEnd)
     new Environment(nodeMap, initialEvents, blockchain)
@@ -130,7 +131,7 @@ class EnvBuilder(private val spec: SimulationSpec,
     val attackerParams = params.copy(
       autoConnectNumChannels = NumAttackChannelsPerNode,
     )
-    val attackParams = HTLCExhaustionAttacker.AttackParams(
+    var attackParams = HTLCExhaustionAttacker.AttackParams(
       CapacityPerAttackChannel,
       attackNodeIDs,
       LoopAttackInterval,

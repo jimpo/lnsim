@@ -58,13 +58,15 @@ class HTLCExhaustionAttacker(id: NodeID,
   override def handleBootstrapEnd()(implicit ctx: NodeContext): Unit = {
     openNewChannels(params.autoConnectNumChannels * attackParams.autoConnectChannelCapacity)
     for (time <- ctx.timestamp until attackParams.stopTime by attackParams.newRouteInterval) {
-      ctx.scheduleAction(time, AttackStep)
+      ctx.scheduleAction(time - ctx.timestamp, AttackStep)
     }
+    ctx.scheduleAction(ctx.timestamp - attackParams.stopTime - 1, LogAttackState)
   }
 
   override def handleAction(action: NodeAction)
                            (implicit ctx: NodeContext): Unit = action match {
     case AttackStep => sendAttackPayments()
+    case LogAttackState => logCriticalEdges(ctx.timestamp)
     case _ => super.handleAction(action)
   }
 
@@ -107,10 +109,26 @@ class HTLCExhaustionAttacker(id: NodeID,
       payment,
       ctx.timestamp,
       tries = 1,
-      hops = 0,
+      route = Nil,
       constraints = localConstraints,
     )
     executePayment(pendingPayment)
+  }
+
+  private def logCriticalEdges(timestamp: Timestamp): Unit = {
+    val edgeEstimatorConstraints = attackParams.attackerNodeIDs
+      .foldLeft(new RouteConstraints()) { (constraints, id) => constraints.banNode(id) }
+    edgeEstimator.analyze(timestamp, graphView, edgeEstimatorConstraints)
+
+    val coreChannels = edgeEstimator.lastAnalysis.coreChannels.toIterator.map(kv => {
+      val (channelID, weight) = kv
+      JsArray(channelID.toJson, weight.toJson)
+    })
+    logger.info(
+      "msg" -> "Estimated critical channels".toJson,
+      "nodeID" -> id.toJson,
+      "channels" -> coreChannels.toSeq.toJson,
+    )
   }
 }
 

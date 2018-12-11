@@ -93,7 +93,7 @@ package object lnsim {
                                   finalHop: FinalHop,
                                   backwardRoute: BackwardRoutingPacket)
 
-  case class BackwardRoutingPacket(hops: List[(Channel, HTLCID)], channelIDs: List[ChannelID])
+  case class BackwardRoutingPacket(hops: List[(Channel, HTLCID)])
 
   /**
     * A node announcement that is broadcast through network gossip. See BOLT 7.
@@ -109,7 +109,7 @@ package object lnsim {
   case class PendingPayment(info: PaymentInfo,
                             timestamp: Timestamp,
                             tries: Int,
-                            hops: Int,
+                            route: List[ChannelID],
                             constraints: RouteConstraints)
 
   /**

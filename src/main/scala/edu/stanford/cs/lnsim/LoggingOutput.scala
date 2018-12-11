@@ -28,10 +28,10 @@ class LoggingOutput extends ObservableOutput with StructuredLogging {
     logger.info(
       "msg" -> "Payment completed".toJson,
       "paymentID" -> pendingPayment.info.paymentID.toJson,
-      "onChain" -> (pendingPayment.hops == 0).toJson,
+      "onChain" -> pendingPayment.route.isEmpty.toJson,
       "amount" -> pendingPayment.info.amount.toJson,
       "tries" -> pendingPayment.tries.toJson,
-      "hops" -> pendingPayment.hops.toJson,
+      "route" -> pendingPayment.route.toJson,
       "totalTime" -> (timestamp - pendingPayment.timestamp).toJson,
     )
   }

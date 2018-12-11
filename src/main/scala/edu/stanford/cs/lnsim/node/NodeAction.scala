@@ -10,4 +10,5 @@ case class FailHTLC(route: BackwardRoutingPacket, error: RoutingError, channel: 
 case class FulfillHTLC(route: BackwardRoutingPacket) extends NodeAction
 case class OpenNewChannels(budget: Value) extends NodeAction
 case object AttackStep extends NodeAction
+case object LogAttackState extends NodeAction
 

@@ -7,7 +7,8 @@ case class Config(randomSeed: Option[Int] = None,
                   blockInterval: Int = Config.DefaultBlockInterval,
                   duration: Int = Config.DefaultDuration,
                   feePerWeight: Value = Config.DefaultFeePerWeight,
-                  numAttackNodes: Int = 0)
+                  numDelayAttackNodes: Int = 0,
+                  numLoopAttackNodes: Int = 0)
 
 object Config {
   val DefaultBlockInterval: Int = 10 * 60
@@ -40,9 +41,13 @@ object Config {
       .action((feePerWeight, c) => c.copy(feePerWeight = feePerWeight))
       .text(s"static fee rate used in the simulation in mSAT (default: $DefaultFeePerWeight")
 
-    opt[Int]("num-attack-nodes")
-      .action((numAttackNodes, c) => c.copy(numAttackNodes = numAttackNodes))
-      .text("the number of attacking nodes (default: 0)")
+    opt[Int]("num-delay-attack-nodes")
+      .action((numDelayAttackNodes, c) => c.copy(numDelayAttackNodes = numDelayAttackNodes))
+      .text("the number of delay attacking nodes (default: 0)")
+
+    opt[Int]("num-loop-attack-nodes")
+      .action((numLoopAttackNodes, c) => c.copy(numLoopAttackNodes = numLoopAttackNodes))
+      .text("the number of loop attacking nodes (default: 0)")
   }
 }
 

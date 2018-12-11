@@ -316,8 +316,7 @@ class NodeActor(val id: NodeID,
       expiry += edge.expiryDelta
     }
 
-    val channelIDs = hops.map(_.channelID)
-    Some(ForwardRoutingPacket(hops, finalHop, BackwardRoutingPacket(Nil, channelIDs)))
+    Some(ForwardRoutingPacket(hops, finalHop, BackwardRoutingPacket(Nil)))
   }
 
   def sendPayment(paymentInfo: PaymentInfo)
@@ -326,7 +325,7 @@ class NodeActor(val id: NodeID,
       paymentInfo,
       ctx.timestamp,
       tries = 1,
-      hops = 0,
+      route = Nil,
       constraints = new RouteConstraints(),
     )
     executePayment(pendingPayment)
@@ -361,7 +360,9 @@ class NodeActor(val id: NodeID,
     maybeRoutingPacket match {
       // Attempt to send payment through the Lightning Network if a route is found.
       case Some(routingPacket) =>
-        pendingPayments(paymentID) = pendingPayment.copy(hops = routingPacket.hops.length)
+        pendingPayments(paymentID) = pendingPayment.copy(
+          route = routingPacket.hops.map(_.channelID)
+        )
 
         val firstHop :: restHops = routingPacket.hops
         logger.debug(
@@ -388,12 +389,6 @@ class NodeActor(val id: NodeID,
           "msg" -> "Attempting to complete payment by opening new direct channel".toJson,
           "channelID" -> channelID.toJson,
           "paymentID" -> paymentInfo.paymentID.toJson
-        )
-      } else {
-        logger.info(
-          "msg" -> "Cannot complete off-chain only payment".toJson,
-          "nodeID" -> id.toJson,
-          "paymentID" -> paymentInfo.paymentID.toJson,
         )
       }
     }
@@ -538,7 +533,7 @@ class NodeActor(val id: NodeID,
       "msg" -> "Payment failed".toJson,
       "paymentID" -> paymentID.toJson,
       "tries" -> pendingPayment.tries.toJson,
-      "hops" -> pendingPayment.hops.toJson,
+      "hops" -> pendingPayment.route.length.toJson,
       "channelID" -> maybeChannel.map(_.id.toJson).getOrElse(JsNull),
       "error" -> error.toString.toJson,
     )
@@ -564,19 +559,19 @@ class NodeActor(val id: NodeID,
              FinalIncorrectHTLCAmount(_) |
              NotDecodable =>
           throw new MisbehavingNodeException(s"$error error received with a non-empty channel")
-        case LoopAttackSuccess =>
-          logger.info(
-            "msg" -> "Loop attacker payment complete".toJson,
-            "id" -> id.toJson,
-            "hops" -> pendingPayment.hops.toJson,
-            "amount" -> pendingPayment.info.amount.toJson,
-            "paymentID" -> pendingPayment.info.paymentID.toJson,
-          )
       }
       case None => error match {
         case FinalExpiryTooSoon => // TODO: Validate against timestamp
         // TODO: Handle corrupted routing errors.
         case NotDecodable => ???
+        case LoopAttackSuccess =>
+          logger.info(
+            "msg" -> "Loop attacker payment complete".toJson,
+            "id" -> id.toJson,
+            "hops" -> pendingPayment.route.length.toJson,
+            "amount" -> pendingPayment.info.amount.toJson,
+            "paymentID" -> pendingPayment.info.paymentID.toJson,
+          )
         case _ => logger.warn(
           "msg" -> "Payment failed permanently at receiving node".toJson,
           "paymentID" -> paymentID.toJson,
@@ -600,7 +595,7 @@ class NodeActor(val id: NodeID,
 
     val newPendingPayment = pendingPayment.copy(
       tries = pendingPayment.tries + 1,
-      hops = 0,
+      route = Nil,
       constraints = newConstraints,
     )
     ctx.scheduleAction(PaymentRetryDelay, RetryPayment(newPendingPayment))
