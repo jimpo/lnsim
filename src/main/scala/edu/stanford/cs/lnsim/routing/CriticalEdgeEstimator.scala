@@ -25,12 +25,14 @@ class CriticalEdgeEstimator(private val analysisInterval: TimeDelta,
                             private val weighting: Channel => Double) {
   import CriticalEdgeEstimator._
 
-  var lastAnalysis: Analysis = Analysis(0, 0, 0, Seq())
-  var lastAnalysisTime: Timestamp = 0
+  private var _lastAnalysis: Analysis = Analysis(0, 0, 0, Map.empty)
+  private var lastAnalysisTime: Timestamp = 0
+
+  def lastAnalysis: Analysis = _lastAnalysis
 
   def analyze(timestamp: Timestamp,
               graphView: NetworkGraphView,
-              localConstraints: RouteConstraints): Analysis = {
+              localConstraints: RouteConstraints): Unit = {
     val jgraph = graphView.jgraph(localConstraints, weighting)
     val nodeCount = jgraph.vertexSet.size
     val edgeCount = jgraph.edgeSet.size
@@ -43,19 +45,16 @@ class CriticalEdgeEstimator(private val analysisInterval: TimeDelta,
         mapInner + (channelID -> (mapInner.getOrElse(channelID, 0) + 1))
       }
     }
-    val coreChannels = Await.result(edgeCounts, Duration.Inf).toList.sortBy(-_._2)
-    lastAnalysis = Analysis(nodeCount, edgeCount, NumTrials, coreChannels)
+    val coreChannels = Await.result(edgeCounts, Duration.Inf)
+    _lastAnalysis = Analysis(nodeCount, edgeCount, NumTrials, coreChannels)
     lastAnalysisTime = timestamp
-    lastAnalysis
   }
 
   def analyzeIfNecessary(timestamp: Timestamp,
                          graphView: NetworkGraphView,
-                         localConstraints: RouteConstraints): Analysis = {
+                         localConstraints: RouteConstraints): Unit = {
     if (lastAnalysisTime + analysisInterval < timestamp) {
       analyze(timestamp, graphView, localConstraints)
-    } else {
-      lastAnalysis
     }
   }
 
@@ -99,5 +98,5 @@ object CriticalEdgeEstimator {
   case class Analysis(nodeCount: Int,
                       edgeCount: Int,
                       trials: Int,
-                      coreChannels: Seq[(ChannelID, Int)])
+                      coreChannels: Map[ChannelID, Int])
 }

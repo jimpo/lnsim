@@ -23,7 +23,10 @@ class NaiveDelayingAttacker(id: NodeID,
   : (Option[RoutingError], Option[BlockNumber]) = {
     super.decideForwardHTLC(prevHop, nextHop) match {
       case ret @ (Some(_error), _) => ret
-      case (None, _) => (Some(TemporaryChannelFailure), Some(prevHop.expiry - params.minExpiry))
+      case (None, _) => (
+        Some(TemporaryChannelFailure(ChannelView.Error.Inactive)),
+        Some(prevHop.expiry - params.minExpiry)
+      )
     }
   }
 
@@ -35,6 +38,9 @@ class NaiveDelayingAttacker(id: NodeID,
       initiateChannelOpen(targetNodeID, capacity, maybePendingPayment = None)
     }
   }
+
+  override def handleBootstrapEnd()(implicit ctx: NodeContext): Unit =
+    openNewChannels(params.autoConnectNumChannels * attackParams.autoConnectChannelCapacity)
 }
 
 object NaiveDelayingAttacker {

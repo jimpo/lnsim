@@ -2,7 +2,7 @@ package edu.stanford.cs.lnsim
 import edu.stanford.cs.lnsim.graph.{NetworkGraph, NetworkGraphView}
 import edu.stanford.cs.lnsim.log.StructuredLogging
 import edu.stanford.cs.lnsim.node._
-import edu.stanford.cs.lnsim.routing.{CriticalEdgeEstimator, MinimalFeeRouter}
+import edu.stanford.cs.lnsim.routing.{CriticalEdgeEstimator, CriticalEdgeRouter, MinimalFeeRouter, Router}
 import edu.stanford.cs.lnsim.spec.SimulationSpec
 import spray.json._
 import spray.json.DefaultJsonProtocol._
@@ -41,10 +41,10 @@ class EnvBuilder(private val spec: SimulationSpec,
 
     // Create NodeActors for all nodes in the spec.
     val honestNodes = buildHonestNodes(graph, router, output, params)
-    // val delayAttackNodes = buildDelayAttackNodes(numAttackNodes, graph, router, output, params)
-    val htlcLoopAttackNodes = buildHTLCLoopAttackNodes(numAttackNodes, graph, router, output, params)
+    // val attackNodes = buildDelayAttackNodes(numAttackNodes, graph, router, output, params)
+    val attackNodes = buildHTLCLoopAttackNodes(numAttackNodes, graph, router, output, params)
 
-    val nodeMap = (honestNodes ++ htlcLoopAttackNodes).map(node => node.id -> node).toMap
+    val nodeMap = (honestNodes ++ attackNodes).map(node => node.id -> node).toMap
 
     // Create NewPayment events for all transactions in the spec.
     val paymentEvents = for (transactionSpec <- spec.transactions) yield {
@@ -54,11 +54,12 @@ class EnvBuilder(private val spec: SimulationSpec,
         throw new InvalidSpecError(s"Payment ${transactionSpec.paymentID} has unknown recipient"))
 
       val payment = PaymentInfo(
-        sender = sender,
-        recipientID = recipient.id,
+        sender = sender.id,
+        recipient = recipient.id,
         amount = transactionSpec.amount,
         finalExpiryDelta = params.finalExpiryDelta,
         paymentID = transactionSpec.paymentID,
+        fallbackOnChain = true,
       )
       (transactionSpec.timestamp, events.NewPayment(payment))
     }
@@ -104,7 +105,7 @@ class EnvBuilder(private val spec: SimulationSpec,
       val blockchainView = new BlockchainView(nodeID, blockchain)
 
       logger.info(
-        "msg" -> "Initializing naive delaying attack node".toJson,
+        "msg" -> "Initializing attack node".toJson,
         "nodeID" -> nodeID.toJson,
         "budget" -> (params.autoConnectNumChannels * attackParams.autoConnectChannelCapacity).toJson,
       )
@@ -122,28 +123,40 @@ class EnvBuilder(private val spec: SimulationSpec,
 
   private def buildHTLCLoopAttackNodes(numNodes: BlockDelta,
                                        graph: NetworkGraph,
-                                       router: MinimalFeeRouter,
+                                       router: Router,
                                        output: LoggingOutput,
                                        params: NodeActor.Params): Seq[NodeActor] = {
     val attackNodeIDs = (1 to numNodes).map(_ => Util.randomUUID()).toSet
-    val attackParams = HTLCExhaustionAttacker.AttackParams(CapacityPerAttackChannel, attackNodeIDs)
+    val attackerParams = params.copy(
+      autoConnectNumChannels = NumAttackChannelsPerNode,
+    )
+    val attackParams = HTLCExhaustionAttacker.AttackParams(
+      CapacityPerAttackChannel,
+      attackNodeIDs,
+      LoopAttackInterval,
+      spec.endTime,
+      LoopFinalExpiryDelta,
+    )
     val edgeEstimator = new CriticalEdgeEstimator(AttackerAnalysisInterval, _channel => 1.0)
+    val loopRouter = new CriticalEdgeRouter(
+      router, edgeEstimator, MaximumRoutingFee, MaxRoutingHops, EclairDefaults.MaxExpiry
+    )
     val nodes = for (nodeID <- attackNodeIDs.iterator) yield {
       val graphView = new NetworkGraphView(graph)
       val blockchainView = new BlockchainView(nodeID, blockchain)
 
       logger.info(
-        "msg" -> "Initializing HTLC exhaustion loop attack node".toJson,
+        "msg" -> "Initializing attack node".toJson,
         "nodeID" -> nodeID.toJson,
         "budget" -> (params.autoConnectNumChannels * attackParams.autoConnectChannelCapacity).toJson,
       )
       new HTLCExhaustionAttacker(
         nodeID,
-        params,
+        attackerParams,
         attackParams,
         edgeEstimator,
         output,
-        router,
+        loopRouter,
         graphView,
         blockchainView,
       )
@@ -179,6 +192,14 @@ object EnvBuilder {
   val OffChainPaymentTimeout: TimeDelta = secondsToTimeDelta(30 * 60)
 
   val NumAttackChannelsPerNode: Int = 1000
-  val CapacityPerAttackChannel: Value = EclairDefaults.MinFundingAmount
+  val CapacityPerAttackChannel: Value = 1000000000000L // EclairDefaults.MinFundingAmount
   val AttackerAnalysisInterval: TimeDelta = secondsToTimeDelta(30 * 60)
+
+  /** Final expiry delta in a loop attack route. Increase it in order to provide deniability to
+    * attacker.
+    */
+  val LoopFinalExpiryDelta: BlockDelta =
+    EclairDefaults.ExpiryDelta + EclairDefaults.FinalExpiryDelta
+
+  val LoopAttackInterval: TimeDelta = secondsToTimeDelta(10 * 60)
 }

@@ -62,27 +62,27 @@ class Environment(private val nodes: Map[NodeID, NodeActor],
         for (notification <- blockchain.blockArrived()) notification match {
           case Blockchain.ChannelOpened(channelID, nodeID) =>
             val node = nodes(nodeID)
-            implicit val ctx = new EnvNodeContext(timestamp, node, scheduleEvent)
+            implicit val ctx: NodeContext = new EnvNodeContext(timestamp, node, scheduleEvent)
             node.handleChannelOpenedOnChain(channelID)
           case Blockchain.ChannelClosed(channelID) => ???
           case Blockchain.ScheduledAction(nodeID, action) =>
             val node = nodes(nodeID)
-            implicit val ctx = new EnvNodeContext(timestamp, node, scheduleEvent)
+            implicit val ctx: NodeContext = new EnvNodeContext(timestamp, node, scheduleEvent)
             node.handleAction(action)
         }
         scheduleEvent(blockchain.nextBlockTime(), events.NewBlock(number + 1))
 
       case events.NewPayment(paymentInfo) =>
-        val sender = paymentInfo.sender
-        implicit val actions = new EnvNodeContext(timestamp, sender, scheduleEvent)
+        val sender = node(paymentInfo.sender).get
+        implicit val actions: NodeContext = new EnvNodeContext(timestamp, sender, scheduleEvent)
         sender.sendPayment(paymentInfo)
 
       case events.ReceiveMessage(sender, recipient, message) =>
-        implicit val actions = new EnvNodeContext(timestamp, recipient, scheduleEvent)
+        implicit val actions: NodeContext = new EnvNodeContext(timestamp, recipient, scheduleEvent)
 
         for (lastDeliveryTime <- messageDeliveryTimes.get((sender.id, recipient.id))) {
           if (lastDeliveryTime <= timestamp) {
-            messageDeliveryTimes.remove(((sender.id, recipient.id)))
+            messageDeliveryTimes.remove((sender.id, recipient.id))
           }
         }
 
@@ -97,16 +97,16 @@ class Environment(private val nodes: Map[NodeID, NodeActor],
         }
 
       case events.ScheduledAction(node, action) =>
-        implicit val actions = new EnvNodeContext(timestamp, node, scheduleEvent)
+        implicit val actions: NodeContext = new EnvNodeContext(timestamp, node, scheduleEvent)
         node.handleAction(action)
 
       case events.OpenChannels(node, budget) =>
-        implicit val actions = new EnvNodeContext(timestamp, node, scheduleEvent)
+        implicit val actions: NodeContext = new EnvNodeContext(timestamp, node, scheduleEvent)
         node.openNewChannels(budget)
 
       case events.BootstrapEnd() =>
         for (node <- nodes.valuesIterator) {
-          implicit val actions = new EnvNodeContext(timestamp, node, scheduleEvent)
+          implicit val actions: NodeContext = new EnvNodeContext(timestamp, node, scheduleEvent)
           node.handleBootstrapEnd()
         }
     }

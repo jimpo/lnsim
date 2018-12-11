@@ -73,6 +73,9 @@ class ChannelView(val otherNode: NodeID,
   def ourAvailableBalance: Value = ourSide.availableBalance(theirParams)
   def theirAvailableBalance: Value = theirSide.availableBalance(ourParams)
 
+  def ourAvailableHTLCs: Value = ourSide.availableHTLCs(theirParams)
+  def theirAvailableHTLCs: Value = theirSide.availableHTLCs(ourParams)
+
   def isClosing: Boolean = status == Status.Closing
   def isClosed: Boolean = isClosing && ourSide.htlcsEmpty && theirSide.htlcsEmpty
 }
@@ -118,6 +121,8 @@ object ChannelView {
 
     // TODO: Transaction weight/total fee check
     def availableBalance(otherParams: ChannelParams): Value = balance - otherParams.requiredReserve
+
+    def availableHTLCs(otherParams: ChannelParams): Int = otherParams.maxAcceptedHTLCs - htlcs.size
 
     def htlcsEmpty: Boolean = htlcs.isEmpty
 

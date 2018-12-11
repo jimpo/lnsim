@@ -46,7 +46,7 @@ class EnvironmentSpec extends FunSpec with OneInstancePerTest with BeforeAndAfte
     it("starts the simulation by scheduling all transactions and first block") {
       val nodeIDs = (0 to 3).map(_  => Util.randomUUID()).toArray
       val spec = SimulationSpec(
-        nodes = nodeIDs.map(NodeSpec(_)).toList,
+        nodes = nodeIDs.map(NodeSpec).toList,
         transactions = List(
           TransactionSpec(1, nodeIDs(0), nodeIDs(1), 10000, Util.randomUUID()),
           TransactionSpec(5, nodeIDs(1), nodeIDs(2), 20000, Util.randomUUID()),
@@ -76,8 +76,8 @@ class EnvironmentSpec extends FunSpec with OneInstancePerTest with BeforeAndAfte
         )
       assert(payment1Time == spec.transactions(0).timestamp)
       assert(payment1.amount == spec.transactions(0).amount)
-      assert(payment1.sender.id == spec.transactions(0).sender)
-      assert(payment1.recipientID == spec.transactions(0).recipient)
+      assert(payment1.sender == spec.transactions(0).sender)
+      assert(payment1.recipient == spec.transactions(0).recipient)
 
       val Some((payment2Time, events.NewPayment(payment2))) =
         newEvents.find(scheduledEvent =>
@@ -87,8 +87,8 @@ class EnvironmentSpec extends FunSpec with OneInstancePerTest with BeforeAndAfte
         )
       assert(payment2Time == spec.transactions(1).timestamp)
       assert(payment2.amount == spec.transactions(1).amount)
-      assert(payment2.sender.id == spec.transactions(1).sender)
-      assert(payment2.recipientID == spec.transactions(1).recipient)
+      assert(payment2.sender == spec.transactions(1).sender)
+      assert(payment2.recipient == spec.transactions(1).recipient)
     }
 
     it("schedules delivery of messages sent between nodes") {
@@ -107,11 +107,12 @@ class EnvironmentSpec extends FunSpec with OneInstancePerTest with BeforeAndAfte
         newEvents = (delay, newEvent) :: newEvents
 
       val payment = PaymentInfo(
-        sender = env.node(nodeIDs(0)).get,
-        recipientID = nodeIDs(1),
+        sender = nodeIDs(0),
+        recipient = nodeIDs(1),
         amount = 10000,
         finalExpiryDelta = 144,
         paymentID = Util.randomUUID(),
+        fallbackOnChain = true,
       )
       env.processEvent(events.NewPayment(payment), 1, scheduleEvent)
 
@@ -121,8 +122,8 @@ class EnvironmentSpec extends FunSpec with OneInstancePerTest with BeforeAndAfte
 
       assert(event.isInstanceOf[events.ReceiveMessage])
       val events.ReceiveMessage(sender, recipient, message) = event
-      assert(sender.id == payment.sender.id)
-      assert(recipient.id == payment.recipientID)
+      assert(sender.id == payment.sender)
+      assert(recipient.id == payment.recipient)
       assert(message.isInstanceOf[OpenChannel])
     }
   }

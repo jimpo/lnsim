@@ -3,8 +3,7 @@ package edu.stanford.cs
 import java.util.UUID
 
 import edu.stanford.cs.lnsim.des.Timestamp
-import edu.stanford.cs.lnsim.graph.{Channel, Node, RouteConstraints}
-import edu.stanford.cs.lnsim.node.NodeActor
+import edu.stanford.cs.lnsim.graph.{Channel, RouteConstraints}
 
 package object lnsim {
   type NodeID = UUID
@@ -25,7 +24,7 @@ package object lnsim {
   case class ChannelParams(requiredReserve: Value,
                            dustLimit: Value,
                            maxHTLCInFlight: Value,
-                           maxAcceptedHTLCs: Value,
+                           maxAcceptedHTLCs: Int,
                            htlcMinimum: Value)
 
   case class HTLC(channel: Channel, desc: HTLC.Desc) {
@@ -44,9 +43,9 @@ package object lnsim {
       * Description of an HTLC send within a channel.
       *
       * @param id The sequential ID of the HTLC within the channel. See BOLT 2, update_add_htlc.
-      * @param amount
-      * @param expiry
-      * @param paymentID
+      * @param amount The HTLC amount
+      * @param expiry The HTLC expiry timestamp
+      * @param paymentID The HTLC payment ID (payment hash in BOLT spec)
     */
     case class Desc(id: HTLCID,
                     amount: Value,
@@ -69,16 +68,19 @@ package object lnsim {
     * Description of a Lightning Network payment.
     *
     * @param sender The node sending the payment.
-    * @param recipientID The node receiving the payment.
+    * @param recipient The node receiving the payment.
     * @param amount The amount of the payment.
     * @param finalExpiryDelta The minimum expiry delta at the final hop.
     * @param paymentID The equivalent of a payment hash in the simulation environment.
+    * @param fallbackOnChain Whether this payment should be completed by opening a new channel if
+    *                        it cannot be send off-chain.
     */
-  case class PaymentInfo(sender: NodeActor,
-                         recipientID: NodeID,
+  case class PaymentInfo(sender: NodeID,
+                         recipient: NodeID,
                          amount: Value,
                          finalExpiryDelta: BlockDelta,
-                         paymentID: PaymentID)
+                         paymentID: PaymentID,
+                         fallbackOnChain: Boolean)
 
   /**
     * A complete routing packet that is sent through the circuit.
@@ -91,7 +93,7 @@ package object lnsim {
                                   finalHop: FinalHop,
                                   backwardRoute: BackwardRoutingPacket)
 
-  case class BackwardRoutingPacket(hops: List[(Channel, HTLCID)])
+  case class BackwardRoutingPacket(hops: List[(Channel, HTLCID)], channelIDs: List[ChannelID])
 
   /**
     * A node announcement that is broadcast through network gossip. See BOLT 7.
@@ -103,8 +105,6 @@ package object lnsim {
     * to retry the payment in case it fails.
     *
     * @param tries A count of the number of attempts to deliver this payment that already failed.
-    * @param ignoreNodes A set of nodes that should be avoided in routing attempts
-    * @param ignoreChannels A set of channels that should be avoided in routing attempts
     */
   case class PendingPayment(info: PaymentInfo,
                             timestamp: Timestamp,

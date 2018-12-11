@@ -27,17 +27,7 @@ object JSONProtocol {
     override def write(n: NodeActor) = JsObject("id" -> JsString(n.id.toString))
   }
 
-  implicit object PaymentInfoFormat extends JsonFormat[PaymentInfo] {
-    override def write(paymentInfo: PaymentInfo): JsValue = JsObject(
-      "sender" -> paymentInfo.sender.id.toJson,
-      "recipient" -> paymentInfo.recipientID.toJson,
-      "amount" -> paymentInfo.amount.toJson,
-      "finalExpiryDelta" -> paymentInfo.finalExpiryDelta.toJson,
-      "paymentID" -> paymentInfo.paymentID.toJson,
-    )
-
-    override def read(json: JsValue): PaymentInfo = ???
-  }
+  implicit val PaymentInfoFormat: RootJsonFormat[PaymentInfo] = jsonFormat6(PaymentInfo)
 
   implicit object PendingPaymentFormat extends JsonFormat[PendingPayment] {
     override def write(payment: PendingPayment): JsValue =
@@ -97,7 +87,7 @@ object JSONProtocol {
       json.asJsObject.getFields("id") match {
         case Seq(id) =>
           NodeSpec(id = id.convertTo[NodeID])
-        case _ => throw new DeserializationException("TransactionSpec expected")
+        case _ => throw DeserializationException("TransactionSpec expected")
       }
     }
   }
@@ -113,7 +103,7 @@ object JSONProtocol {
             amount = amount.toLong,
             paymentID = paymentID.convertTo[NodeID],
           )
-        case _ => throw new DeserializationException(s"TransactionSpec expected, got $json")
+        case _ => throw DeserializationException(s"TransactionSpec expected, got $json")
       }
     }
   }
@@ -127,7 +117,7 @@ object JSONProtocol {
             timestamp = timestamp.toLongExact,
             amount = amount.toLongExact,
           )
-        case _ => throw new DeserializationException(s"TransactionSpec expected, got $json")
+        case _ => throw DeserializationException(s"TransactionSpec expected, got $json")
       }
     }
   }
@@ -137,13 +127,13 @@ object JSONProtocol {
       json.asJsObject.getFields("NodeIDs", "Transactions", "ChannelBudgets", "BootstrapEnd", "SimulationEnd") match {
         case Seq(JsArray(nodeIDs), JsArray(transactions), JsArray(channelBudgets), JsNumber(startTime), JsNumber(endTime)) =>
           SimulationSpec(
-            nodes = nodeIDs.map(_.convertTo[NodeID]).map(NodeSpec(_)).toList,
+            nodes = nodeIDs.map(_.convertTo[NodeID]).map(NodeSpec).toList,
             transactions = transactions.map(_.convertTo[TransactionSpec]).toList,
             channelBudgets = channelBudgets.map(_.convertTo[ChannelBudgetSpec]).toList,
             startTime = startTime.toLongExact,
             endTime = endTime.toLongExact,
           )
-        case _ => throw new DeserializationException("SimulationSpec expected")
+        case _ => throw DeserializationException("SimulationSpec expected")
       }
     }
   }

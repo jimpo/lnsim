@@ -91,7 +91,9 @@ class NodeActor(val id: NodeID,
 
     addRemoteHTLC(hop)
 
-    val backwardsRoute = BackwardRoutingPacket((hop.channel, hop.id) :: route.backwardRoute.hops)
+    val backwardsRoute = route.backwardRoute.copy(
+      hops = (hop.channel, hop.id) :: route.backwardRoute.hops,
+    )
     nextHops.headOption match {
       case Some(nextHop) =>
         val newRoute = ForwardRoutingPacket(nextHops, route.finalHop, backwardsRoute)
@@ -203,7 +205,7 @@ class NodeActor(val id: NodeID,
       failPayment(htlc.paymentID, failMsg.error, failMsg.channel)
     } else {
       // Intermediate hop in the circuit.
-      failHTLC(BackwardRoutingPacket(nextHops), failMsg.error, failMsg.channel)
+      failHTLC(route.copy(hops = nextHops), failMsg.error, failMsg.channel)
     }
   }
 
@@ -230,7 +232,7 @@ class NodeActor(val id: NodeID,
       completePayment(htlc.paymentID, ctx.timestamp)
     } else {
       // Intermediate hop in the circuit.
-      fulfillHTLC(BackwardRoutingPacket(nextHops))
+      fulfillHTLC(route.copy(hops = nextHops))
     }
   }
 
@@ -314,7 +316,8 @@ class NodeActor(val id: NodeID,
       expiry += edge.expiryDelta
     }
 
-    Some(ForwardRoutingPacket(hops, finalHop, BackwardRoutingPacket(Nil)))
+    val channelIDs = hops.map(_.channelID)
+    Some(ForwardRoutingPacket(hops, finalHop, BackwardRoutingPacket(Nil, channelIDs)))
   }
 
   def sendPayment(paymentInfo: PaymentInfo)
@@ -333,13 +336,6 @@ class NodeActor(val id: NodeID,
                     (implicit ctx: NodeContext): Unit = {
     val paymentInfo = pendingPayment.info
     val paymentID = paymentInfo.paymentID
-    if (paymentInfo.recipientID == id) {
-      logger.warn(
-        "msg" -> "Failed attempt to send payment to self".toJson,
-        "paymentID" -> paymentID.toJson
-      )
-      return
-    }
     if (pendingPayments.contains(paymentID)) {
       logger.warn(
         "msg" -> "Failed attempt to execute duplicate payment".toJson,
@@ -352,14 +348,9 @@ class NodeActor(val id: NodeID,
     val maybeRoutingPacket = if (paymentElapsedTime < params.offChainPaymentTimeout) {
       ctx.advanceTimestamp(RoutingTime)
       // Avoid channels that we know have insufficient available capacity.
-      val localConstraints = channels.foldLeft(pendingPayment.constraints) { (constraints, kv) => {
-        val (channelID, channel) = kv
-        if (channel.ourAvailableBalance < paymentInfo.amount) {
-          constraints.banChannelFromSource(channelID, id)
-        } else {
-          constraints
-        }
-      }}
+      val localConstraints = addOutgoingLocalConstraints(
+        pendingPayment.constraints, pendingPayment.info.amount
+      )
       route(paymentInfo, localConstraints, paymentIDKnown = true)
     } else {
       // If it has been too long since the payment was first attempted, stop trying to deliver it
@@ -388,16 +379,23 @@ class NodeActor(val id: NodeID,
         }
 
       // Otherwise, open a channel directly to the peer
-      case None =>
+      case None => if (paymentInfo.fallbackOnChain) {
         pendingPayments(paymentID) = pendingPayment
 
-        val capacity = newChannelCapacity(paymentInfo.recipientID, paymentInfo.amount)
-        val channelID = initiateChannelOpen(paymentInfo.recipientID, capacity, Some(pendingPayment))
+        val capacity = newChannelCapacity(paymentInfo.recipient, paymentInfo.amount)
+        val channelID = initiateChannelOpen(paymentInfo.recipient, capacity, Some(pendingPayment))
         logger.debug(
           "msg" -> "Attempting to complete payment by opening new direct channel".toJson,
           "channelID" -> channelID.toJson,
           "paymentID" -> paymentInfo.paymentID.toJson
         )
+      } else {
+        logger.info(
+          "msg" -> "Cannot complete off-chain only payment".toJson,
+          "nodeID" -> id.toJson,
+          "paymentID" -> paymentInfo.paymentID.toJson,
+        )
+      }
     }
   }
 
@@ -481,11 +479,6 @@ class NodeActor(val id: NodeID,
   }
 
   private def sendHTLC(htlc: HTLC): Either[RoutingError, HTLC] = {
-    logger.debug(
-      "msg" -> "Send HTLC".toJson,
-      "node" -> id.toJson,
-      "channel" -> htlc.channelID.toJson,
-    )
     channels.get(htlc.channel.id) match {
       case Some(channel) =>
         // TODO: Check CLTV delta + fee rate against channel update params
@@ -496,10 +489,10 @@ class NodeActor(val id: NodeID,
               throw new AssertionError("HTLC should have been correctly assigned in call to addLocalHTLC")
             case ChannelView.Error.BelowHTLCMinimum =>
               AmountBelowMinimum(htlc.amount)
-            case ChannelView.Error.InsufficientBalance |
-                 ChannelView.Error.ExceedsMaxHTLCInFlight |
-                 ChannelView.Error.ExceedsMaxAcceptedHTLCs =>
-              TemporaryChannelFailure
+            case e@(ChannelView.Error.InsufficientBalance |
+                    ChannelView.Error.ExceedsMaxHTLCInFlight |
+                    ChannelView.Error.ExceedsMaxAcceptedHTLCs) =>
+              TemporaryChannelFailure(e)
           }
           .toLeft(HTLC(htlc.channel, htlcDesc))
       case None => Left(UnknownNextPeer)
@@ -530,7 +523,7 @@ class NodeActor(val id: NodeID,
     )
   }
 
-  private def completePayment(paymentID: PaymentID, timestamp: Timestamp): Unit = {
+  protected def completePayment(paymentID: PaymentID, timestamp: Timestamp): Unit = {
     val pendingPayment = pendingPayments.remove(paymentID)
       .getOrElse(throw new AssertionError(s"Unknown payment $paymentID failed"))
     output.paymentCompleted(pendingPayment, timestamp)
@@ -545,6 +538,7 @@ class NodeActor(val id: NodeID,
       "msg" -> "Payment failed".toJson,
       "paymentID" -> paymentID.toJson,
       "tries" -> pendingPayment.tries.toJson,
+      "hops" -> pendingPayment.hops.toJson,
       "channelID" -> maybeChannel.map(_.id.toJson).getOrElse(JsNull),
       "error" -> error.toString.toJson,
     )
@@ -556,7 +550,7 @@ class NodeActor(val id: NodeID,
 
     maybeChannel match {
       case Some(channel) => error match {
-        case TemporaryChannelFailure => temporaryIgnoreChannel = Some(channel)
+        case TemporaryChannelFailure(e) => temporaryIgnoreChannel = Some(channel)
         case _: NodeError => error match {
           case _: PermanentError => permanentIgnoreNode = Some(channel.source)
           case _ => temporaryIgnoreNode = Some(channel.source)
@@ -570,6 +564,14 @@ class NodeActor(val id: NodeID,
              FinalIncorrectHTLCAmount(_) |
              NotDecodable =>
           throw new MisbehavingNodeException(s"$error error received with a non-empty channel")
+        case LoopAttackSuccess =>
+          logger.info(
+            "msg" -> "Loop attacker payment complete".toJson,
+            "id" -> id.toJson,
+            "hops" -> pendingPayment.hops.toJson,
+            "amount" -> pendingPayment.info.amount.toJson,
+            "paymentID" -> pendingPayment.info.paymentID.toJson,
+          )
       }
       case None => error match {
         case FinalExpiryTooSoon => // TODO: Validate against timestamp
@@ -662,7 +664,7 @@ class NodeActor(val id: NodeID,
     *     be forwarded. The second element is Some(BlockNumber) if the response should be delayed
     *     until the specified block or None if it is to be sent immediately.
     */
-  def decideAcceptHTLC(htlc: HTLC, finalHop: FinalHop)
+  def decideAcceptHTLC(htlc: HTLC, finalHop: FinalHop)(implicit ctx: NodeContext)
   : (Option[RoutingError], Option[BlockNumber]) = {
     if (!finalHop.paymentIDKnown) {
       return (Some(UnknownPaymentHash), None)
@@ -678,6 +680,36 @@ class NodeActor(val id: NodeID,
     }
 
     (None, None)
+  }
+
+  /** This adds constraints to block channels that can't be routed through based on private
+    * information we have about our local channel states.
+    */
+  protected def addOutgoingLocalConstraints(constraints: RouteConstraints, amount: Value)
+  : RouteConstraints = {
+    channels.foldLeft(constraints) { (constraints, kv) => {
+      val (channelID, channel) = kv
+      if (channel.ourAvailableBalance < amount || channel.ourAvailableHTLCs == 0) {
+        constraints.banChannelFromSource(channelID, id)
+      } else {
+        constraints
+      }
+    }}
+  }
+
+  /** This adds constraints to block channels that can't be routed through based on private
+    * information we have about our local channel states.
+    */
+  protected def addIncomingLocalConstraints(constraints: RouteConstraints, amount: Value)
+  : RouteConstraints = {
+    channels.foldLeft(constraints) { (constraints, kv) => {
+      val (channelID, channel) = kv
+      if (channel.theirAvailableBalance < amount || channel.theirAvailableHTLCs == 0) {
+        constraints.banChannelFromSource(channelID, channel.otherNode)
+      } else {
+        constraints
+      }
+    }}
   }
 }
 

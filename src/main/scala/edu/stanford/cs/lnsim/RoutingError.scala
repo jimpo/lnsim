@@ -1,5 +1,7 @@
 package edu.stanford.cs.lnsim
 
+import edu.stanford.cs.lnsim.node.ChannelView
+
 /**
   * An error returned with a failed payment.
   *
@@ -24,7 +26,7 @@ case object TemporaryNodeError extends RoutingError with NodeError
 case object PermanentNodeError extends RoutingError with PermanentError with NodeError
 case object RequiredNodeFeatureMissing extends RoutingError with PermanentError with NodeError
 case object UnknownNextPeer extends RoutingError with PermanentError
-case object TemporaryChannelFailure extends RoutingError with UpdateError
+case class TemporaryChannelFailure(reason: ChannelView.Error.Value) extends RoutingError with UpdateError
 case object ChannelDisabled extends RoutingError with UpdateError
 case class AmountBelowMinimum(amount: Value) extends RoutingError with UpdateError
 case object UnknownPaymentHash extends RoutingError with PermanentError
@@ -36,3 +38,4 @@ case object IncorrectExpiryDelta extends RoutingError with UpdateError
 case object ExpiryTooSoon extends RoutingError with UpdateError
 case object FeeInsufficient extends RoutingError with UpdateError
 case object ExpiryTooFar extends RoutingError
+case object LoopAttackSuccess extends RoutingError

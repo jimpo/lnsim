@@ -15,8 +15,12 @@ class MinimalFeeRouter(maxFee: Value, maxHops: Int, maxExpiry: BlockDelta) exten
   override def findPath(paymentInfo: PaymentInfo,
                         graph: NetworkGraphView,
                         localConstraints: RouteConstraints): List[Channel] = {
-    val source = paymentInfo.sender.id
-    val target = paymentInfo.recipientID
+    val source = paymentInfo.sender
+    val target = paymentInfo.recipient
+    if (source == target) {
+      throw new RoutingException("Cannot route a payment to self")
+    }
+
     val constraints = graph.constraints + localConstraints
 
     val paths = mutable.HashMap.empty[NodeID, PathInfo]
