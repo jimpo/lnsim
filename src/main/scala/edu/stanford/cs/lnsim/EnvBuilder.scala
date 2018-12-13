@@ -200,10 +200,8 @@ class EnvBuilder(private val output: ObservableOutput,
 object EnvBuilder {
   /** This is the maximum that a node is willing to pay in routing fees. If the cost of a
     * transaction exceeds this amount, the node would prefer to send it on-chain anyway.
-    *
-    * Set to 0.0001 BTC.
     */
-  val MaximumRoutingFee: Value = 10000000
+  val MaximumRoutingFee: Value = 10000000000L // 0.1 BTC
 
   /** Maximum number of hops allowed in a payment route. This is specified in BOLT 4.
     */
