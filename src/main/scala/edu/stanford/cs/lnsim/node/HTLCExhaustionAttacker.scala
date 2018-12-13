@@ -57,10 +57,10 @@ class HTLCExhaustionAttacker(id: NodeID,
 
   override def handleBootstrapEnd()(implicit ctx: NodeContext): Unit = {
     openNewChannels(params.autoConnectNumChannels * attackParams.autoConnectChannelCapacity)
-    for (time <- ctx.timestamp until attackParams.stopTime by attackParams.newRouteInterval) {
+    for (time <- ctx.timestamp to attackParams.stopTime by attackParams.newRouteInterval) {
       ctx.scheduleAction(time - ctx.timestamp, AttackStep)
     }
-    ctx.scheduleAction(ctx.timestamp - attackParams.stopTime - 1, LogAttackState)
+    ctx.scheduleAction(ctx.timestamp - attackParams.stopTime, LogAttackState)
   }
 
   override def handleAction(action: NodeAction)

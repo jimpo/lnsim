@@ -7,7 +7,10 @@ import spray.json.{JsField, JsObject}
 import scala.util.Random
 
 object Util {
-  def drawExponential(mean: Double): Int = (-mean * math.log(1 - Random.nextDouble())).toInt
+  def drawExponential(mean: Double, rand: Random = null): Int = {
+    val randDouble = if (rand == null) Random.nextDouble() else rand.nextDouble()
+    (-mean * math.log(1 - randDouble)).toInt
+  }
 
   /**
     * Generate a random UUID using the Scala global Random object.

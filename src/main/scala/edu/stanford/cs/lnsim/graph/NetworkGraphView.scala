@@ -12,6 +12,8 @@ class NetworkGraphView(private val graph: NetworkGraph) {
 
   def node(id: NodeID): Option[Node] = graph.node(id)
   def nodeIterator: Iterator[Node] = graph.nodeIterator
+
+  def channels(channelID: ChannelID): Seq[Channel] = graph.channels(channelID)
   def updateChannel(channel: Channel): Unit = graph.updateChannel(channel)
   def removeChannel(channelID: ChannelID): Unit = graph.removeChannel(channelID)
   def banNode(id: NodeID): Unit = _constraints = constraints.banNode(id)

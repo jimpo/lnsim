@@ -8,7 +8,11 @@ import scala.collection.mutable
 import spray.json._
 import spray.json.DefaultJsonProtocol._
 
-class Blockchain(val blockInterval: TimeDelta, val feePerWeight: Value) extends StructuredLogging {
+import scala.util.Random
+
+class Blockchain(val blockInterval: TimeDelta,
+                 val feePerWeight: Value,
+                 private val rand: Random = null) extends StructuredLogging {
   import Blockchain._
 
   private var _blockNumber: BlockNumber = 0
@@ -26,7 +30,7 @@ class Blockchain(val blockInterval: TimeDelta, val feePerWeight: Value) extends 
     events
   }
 
-  def nextBlockTime(): TimeDelta = Util.drawExponential(blockInterval)
+  def nextBlockTime(): TimeDelta = Util.drawExponential(blockInterval, rand)
 
   def blockNumber: BlockNumber = _blockNumber
   private def incBlockNumber(): Unit = _blockNumber += 1

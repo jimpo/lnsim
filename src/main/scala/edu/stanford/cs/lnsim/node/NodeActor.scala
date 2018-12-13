@@ -557,7 +557,8 @@ class NodeActor(val id: NodeID,
              ExpiryTooFar |
              FinalIncorrectExpiry(_) |
              FinalIncorrectHTLCAmount(_) |
-             NotDecodable =>
+             NotDecodable |
+             LoopAttackSuccess =>
           throw new MisbehavingNodeException(s"$error error received with a non-empty channel")
       }
       case None => error match {

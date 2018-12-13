@@ -8,7 +8,8 @@ case class Config(randomSeed: Option[Int] = None,
                   duration: Int = Config.DefaultDuration,
                   feePerWeight: Value = Config.DefaultFeePerWeight,
                   numDelayAttackNodes: Int = 0,
-                  numLoopAttackNodes: Int = 0)
+                  numLoopAttackNodes: Int = 0,
+                  disableCriticalChannels: Int = 0)
 
 object Config {
   val DefaultBlockInterval: Int = 10 * 60
@@ -48,6 +49,11 @@ object Config {
     opt[Int]("num-loop-attack-nodes")
       .action((numLoopAttackNodes, c) => c.copy(numLoopAttackNodes = numLoopAttackNodes))
       .text("the number of loop attacking nodes (default: 0)")
+
+    opt[Int]("disable-critical-channels")
+      .action((disableCriticalChannels, c) =>
+        c.copy(disableCriticalChannels = disableCriticalChannels))
+      .text("enable an attacker that can disable this many channels of its choosing")
   }
 }
 

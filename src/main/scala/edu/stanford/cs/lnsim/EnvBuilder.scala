@@ -13,7 +13,9 @@ class EnvBuilder(private val spec: SimulationSpec,
                  private val blockchain: Blockchain) extends StructuredLogging {
   import EnvBuilder._
 
-  def build(numDelayAttackNodes: Int = 0, numLoopAttackNodes: Int = 0): Environment = {
+  def build(numDelayAttackNodes: Int = 0,
+            numLoopAttackNodes: Int = 0,
+            disableCriticalChannels: Int = 0): Environment = {
     val graph = new NetworkGraph()
     val router = new MinimalFeeRouter(MaximumRoutingFee, MaxRoutingHops, EclairDefaults.MaxExpiry)
     val output = new LoggingOutput()
@@ -43,8 +45,13 @@ class EnvBuilder(private val spec: SimulationSpec,
     val honestNodes = buildHonestNodes(graph, router, output, params)
     val delayAttackNodes = buildDelayAttackNodes(numDelayAttackNodes, graph, router, output, params)
     val loopAttackNodes = buildHTLCLoopAttackNodes(numLoopAttackNodes, graph, router, output, params)
+    val disablingAttacker = if (disableCriticalChannels > 0) {
+      Seq(buildDisablingAttackNode(disableCriticalChannels, graph, router, output, params))
+    } else {
+      Seq()
+    }
 
-    val nodeMap = (honestNodes ++ delayAttackNodes ++ loopAttackNodes)
+    val nodeMap = (honestNodes ++ delayAttackNodes ++ loopAttackNodes ++ disablingAttacker)
       .map(node => node.id -> node).toMap
 
     // Create NewPayment events for all transactions in the spec.
@@ -163,6 +170,34 @@ class EnvBuilder(private val spec: SimulationSpec,
       )
     }
     nodes.toSeq
+  }
+
+  private def buildDisablingAttackNode(numTargetChannels: Int,
+                                       graph: NetworkGraph,
+                                       router: Router,
+                                       output: LoggingOutput,
+                                       params: NodeActor.Params): NodeActor = {
+    val attackParams = DisablingAttacker.AttackParams(
+      numTargetChannels = numTargetChannels,
+      stopTime = spec.endTime,
+      interval = secondsToTimeDelta(10 * 60),
+    )
+    val edgeEstimator = new CriticalEdgeEstimator(AttackerAnalysisInterval, _channel => 1.0)
+    val graphView = new NetworkGraphView(graph)
+
+    val nodeID = Util.randomUUID()
+    val blockchainView = new BlockchainView(nodeID, blockchain)
+
+    new DisablingAttacker(
+      nodeID,
+      params,
+      attackParams,
+      edgeEstimator,
+      output,
+      router,
+      graphView,
+      blockchainView,
+    )
   }
 }
 

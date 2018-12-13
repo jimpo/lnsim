@@ -58,7 +58,7 @@ class MinimalFeeRouter(maxFee: Value, maxHops: Int, maxExpiry: BlockDelta) exten
             // Delay the checkChannel call because it is slow and less likely to be false
             if (betterPath && constraints.allowChannel(channel)) {
               paths(channel.target) = newPath
-              queue.enqueue((newPath.fee, channel.target))
+              queue.enqueue((-newPath.fee, channel.target))
             }
           }
         })

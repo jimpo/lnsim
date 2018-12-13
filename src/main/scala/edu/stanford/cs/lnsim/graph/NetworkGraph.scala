@@ -20,6 +20,16 @@ class NetworkGraph extends StructuredLogging {
   private val nodes: mutable.Map[NodeID, Node] = mutable.HashMap.empty
   private val channels: mutable.Map[ChannelID, (NodeID, NodeID)] = mutable.HashMap.empty
 
+  def channels(channelID: ChannelID): Seq[Channel] = {
+    channels.get(channelID).toSeq
+      .flatMap(nodes => {
+        val (node1, node2) = nodes
+        Seq(node1, node2)
+          .flatMap(node)
+          .flatMap(_.channelsIterator.find(_.id == channelID))
+      })
+  }
+
   def updateChannel(channel: Channel): Unit = {
     logger.debug(
       "msg" -> "Updating channel".toJson,
