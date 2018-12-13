@@ -32,11 +32,12 @@ class DisablingAttacker(id: NodeID,
 
   var disabledChannels: List[ChannelID] = List()
 
-  override def handleBootstrapEnd()(implicit ctx: NodeContext): Unit =
+  override def handleBootstrapEnd()(implicit ctx: NodeContext): Unit = {
     for (time <- ctx.timestamp to attackParams.stopTime by attackParams.interval) {
       ctx.scheduleAction(time - ctx.timestamp, AttackStep)
-      ctx.scheduleAction(ctx.timestamp - attackParams.stopTime, LogAttackState)
     }
+    ctx.scheduleAction(attackParams.stopTime - ctx.timestamp, LogAttackState)
+  }
 
   override def handleAction(action: NodeAction)
                            (implicit ctx: NodeContext): Unit = action match {

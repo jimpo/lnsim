@@ -9,7 +9,8 @@ import spray.json.DefaultJsonProtocol._
 import JSONProtocol._
 import edu.stanford.cs.lnsim.des.{TimeDelta, secondsToTimeDelta}
 
-class EnvBuilder(private val spec: SimulationSpec,
+class EnvBuilder(private val output: ObservableOutput,
+                 private val spec: SimulationSpec,
                  private val blockchain: Blockchain) extends StructuredLogging {
   import EnvBuilder._
 
@@ -18,12 +19,11 @@ class EnvBuilder(private val spec: SimulationSpec,
             disableCriticalChannels: Int = 0): Environment = {
     val graph = new NetworkGraph()
     val router = new MinimalFeeRouter(MaximumRoutingFee, MaxRoutingHops, EclairDefaults.MaxExpiry)
-    val output = new LoggingOutput()
 
     val params = NodeActor.Params(
       EclairDefaults.ReserveToFundingRatio,
       EclairDefaults.DustLimitSatoshis,
-      EclairDefaults.MaxHTLCInFlight,
+      MaxHTLCInFlight,
       EclairDefaults.MaxAcceptedHTLCs,
       EclairDefaults.HTLCMinimum,
       EclairDefaults.MinDepthBlocks,
@@ -42,11 +42,11 @@ class EnvBuilder(private val spec: SimulationSpec,
     )
 
     // Create NodeActors for all nodes in the spec.
-    val honestNodes = buildHonestNodes(graph, router, output, params)
-    val delayAttackNodes = buildDelayAttackNodes(numDelayAttackNodes, graph, router, output, params)
-    val loopAttackNodes = buildHTLCLoopAttackNodes(numLoopAttackNodes, graph, router, output, params)
+    val honestNodes = buildHonestNodes(graph, router, params)
+    val delayAttackNodes = buildDelayAttackNodes(numDelayAttackNodes, graph, router, params)
+    val loopAttackNodes = buildHTLCLoopAttackNodes(numLoopAttackNodes, graph, router, params)
     val disablingAttacker = if (disableCriticalChannels > 0) {
-      Seq(buildDisablingAttackNode(disableCriticalChannels, graph, router, output, params))
+      Seq(buildDisablingAttackNode(disableCriticalChannels, graph, router, params))
     } else {
       Seq()
     }
@@ -87,7 +87,6 @@ class EnvBuilder(private val spec: SimulationSpec,
 
   private def buildHonestNodes(graph: NetworkGraph,
                                router: MinimalFeeRouter,
-                               output: LoggingOutput,
                                params: NodeActor.Params): List[NodeActor] = {
     for (nodeSpec <- spec.nodes) yield {
       val graphView = new NetworkGraphView(graph)
@@ -99,7 +98,6 @@ class EnvBuilder(private val spec: SimulationSpec,
   private def buildDelayAttackNodes(numNodes: BlockDelta,
                                     graph: NetworkGraph,
                                     router: MinimalFeeRouter,
-                                    output: LoggingOutput,
                                     params: NodeActor.Params): Seq[NodeActor] = {
     val attackerParams = params.copy(
       feeBase = 0,
@@ -132,7 +130,6 @@ class EnvBuilder(private val spec: SimulationSpec,
   private def buildHTLCLoopAttackNodes(numNodes: BlockDelta,
                                        graph: NetworkGraph,
                                        router: Router,
-                                       output: LoggingOutput,
                                        params: NodeActor.Params): Seq[NodeActor] = {
     val attackNodeIDs = (1 to numNodes).map(_ => Util.randomUUID()).toSet
     val attackerParams = params.copy(
@@ -175,7 +172,6 @@ class EnvBuilder(private val spec: SimulationSpec,
   private def buildDisablingAttackNode(numTargetChannels: Int,
                                        graph: NetworkGraph,
                                        router: Router,
-                                       output: LoggingOutput,
                                        params: NodeActor.Params): NodeActor = {
     val attackParams = DisablingAttacker.AttackParams(
       numTargetChannels = numTargetChannels,
@@ -212,6 +208,9 @@ object EnvBuilder {
   /** Maximum number of hops allowed in a payment route. This is specified in BOLT 4.
     */
   val MaxRoutingHops: Int = 20
+
+  /** Raise the MaxHTLCInFlight to a very high amount to accommodate large payments. */
+  val MaxHTLCInFlight: Value = 1000000000000L // 10 BTC
 
   /** Assume the weight of the funding transaction in BOLT 3: Appendix B test vectors, which is 928.
     */

@@ -22,6 +22,6 @@ package object graph {
     /**
       * Calculate the fee charged for an HTLC send through this channel.
       */
-    def fee(amount: Value): Value = feeBase + amount * feeProportionalMillionths / 1000
+    def fee(amount: Value): Value = feeBase + amount * feeProportionalMillionths / 1000000
   }
 }

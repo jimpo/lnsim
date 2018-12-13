@@ -2,10 +2,13 @@ package edu.stanford.cs.lnsim
 
 import edu.stanford.cs.lnsim.des.TimeDelta
 import edu.stanford.cs.lnsim.spec.{NodeSpec, SimulationSpec, TransactionSpec}
+import org.scalamock.scalatest.MockFactory
 import org.scalatest.{BeforeAndAfter, FunSpec, Matchers, OneInstancePerTest}
 
 //noinspection ZeroIndexToHead
-class EnvironmentSpec extends FunSpec with OneInstancePerTest with BeforeAndAfter with Matchers {
+class EnvironmentSpec extends FunSpec
+  with OneInstancePerTest with BeforeAndAfter with Matchers with MockFactory {
+
   describe("An Environment") {
     val blockchain = new Blockchain(Config.DefaultBlockInterval, Config.DefaultFeePerWeight)
 
@@ -18,7 +21,8 @@ class EnvironmentSpec extends FunSpec with OneInstancePerTest with BeforeAndAfte
           startTime = 0,
           endTime = 1000000,
         )
-        val env = new EnvBuilder(spec, blockchain).build()
+        val output = mock[ObservableOutput]
+        val env = new EnvBuilder(output, spec, blockchain).build()
 
         var newEvents: List[(TimeDelta, env.Event)] = Nil
         val scheduleEvent = (delay: TimeDelta, newEvent: env.Event) =>
@@ -55,7 +59,8 @@ class EnvironmentSpec extends FunSpec with OneInstancePerTest with BeforeAndAfte
         startTime = 0,
         endTime = 1000000,
       )
-      val env = new EnvBuilder(spec, blockchain).build()
+      val output = mock[ObservableOutput]
+      val env = new EnvBuilder(output, spec, blockchain).build()
 
       var newEvents: List[(TimeDelta, env.Event)] = Nil
       val scheduleEvent = (delay: TimeDelta, newEvent: env.Event) =>
@@ -100,7 +105,8 @@ class EnvironmentSpec extends FunSpec with OneInstancePerTest with BeforeAndAfte
         startTime = 0,
         endTime = 1000000,
       )
-      val env = new EnvBuilder(spec, blockchain).build()
+      val output = mock[ObservableOutput]
+      val env = new EnvBuilder(output, spec, blockchain).build()
 
       var newEvents: List[(TimeDelta, env.Event)] = Nil
       val scheduleEvent = (delay: TimeDelta, newEvent: env.Event) =>

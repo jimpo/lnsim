@@ -27,6 +27,7 @@ object SimulationRunner extends App {
         rand = new Random(Random.nextLong()),
       )
       val graphBuilder = new EnvBuilder(
+        output = new LoggingOutput(),
         spec = spec,
         blockchain = blockchain
       )

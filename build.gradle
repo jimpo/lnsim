@@ -21,6 +21,7 @@ dependencies {
 
     testImplementation group: 'junit', name: 'junit', version: '4.12'
     testImplementation group: 'org.scalatest', name: 'scalatest_2.12', version: '3.0.5'
+    testImplementation group: 'org.scalamock', name: 'scalamock_2.12', version: '4.1.0'
 
     runtimeOnly group: 'org.scala-lang.modules', name: 'scala-xml_2.12', version: '1.1.1'
 }
