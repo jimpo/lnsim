@@ -3,7 +3,7 @@
 A [Lightning Network](https://lightning.network/) simulation tool. The program is designed to
 assist with research on routing, fee markets, and misbehaving nodes on the Lightning Network.
 
-This is very much incomplete at present.
+This project is very much incomplete at present.
 
 ## Simulation model
 
@@ -19,3 +19,16 @@ network clients. For example, an additional input in the specification file list
 increase their budget to auto-connect to other nodes (eg. simulating the "autopilot" feature of
 [LND](https://github.com/lightningnetwork/lnd)).
 
+## Build
+
+lnsim uses the [Gradle](https://gradle.org/) build system. If you don't know how to use Gradle,
+neither do I, so I recommend you use [IntelliJ IDEA](https://www.jetbrains.com/idea/) and it will
+do the right thing.
+
+## Running a simulation
+
+To run a simulation, you first need to generate a specification file. 
+[txSmear](https://github.com/wrbrand/txSmear) is a project that generates input specifications
+based on historical transactions from the Ethereum blockchain.
+
+The program entrypoint is the `edu.stanford.lnsim.SimulationRunner` class.
