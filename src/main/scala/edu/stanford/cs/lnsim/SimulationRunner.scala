@@ -36,7 +36,7 @@ object SimulationRunner extends App {
         config.numLoopAttackNodes,
         config.disableCriticalChannels
       )
-      val simulation = new Simulation[Environment](env, secondsToTimeDelta(config.duration))
+      val simulation = new Simulation[Environment](env, spec.endTime)
 
       Signal.handle(new Signal("INT"), _ => simulation.stop())
 
